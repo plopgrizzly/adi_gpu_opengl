@@ -1,0 +1,43 @@
+# Cargo.toml -- Aldaron's Device Interface / GPU / OpenGL
+# Copyright (c) 2018  Jeron A. Lau <jeron.lau@plopgrizzly.com>
+# Licensed under the MIT LICENSE
+#                             _        _
+#                            /@\——————/@\
+# .———  .                   |   o    o   |     .————      .            .
+# |   | |  .———   .———   .——.     []     .——.  |      .——    ———: ———: | .   .
+# |   | |  |   |  |   |  \   \   <##>   /   /  |      |   |    /    /  | |   |
+# |———  |  |   |  |   |   |   ¯        ¯   |   |   -- |   |   /    /   |  \ /
+# |     |  |   |  |———    |                |   |    | |   |  /    /    |   |
+# |     |   ———   |       |                |    ————  |   | :——— :———  |   |
+#                 |        \              /                              __/
+#                           ¯————————————¯
+
+[package]
+name = "adi_gpu_opengl"
+version = "0.1.0"
+authors = [
+	"Jeron A. Lau <jeron.lau@plopgrizzly.com>"
+]
+
+license = "MIT"
+documentation = "https://docs.rs/adi_gpu_opengl"
+homepage = "http://plopgrizzly.com/adi_gpu_opengl"
+repository = "https://github.com/plopgrizzly/adi_gpu_opengl"
+
+readme = "README.md"
+description = "OpenGL implementation for adi_gpu"
+keywords = [ "opengl", "graphics", "gui", "hardware", "rendering" ]
+categories = ["gui", "game-engines", "hardware-support", "multimedia::video",
+	"rendering::graphics-api"]
+
+exclude = [
+	"examples/*", "CODE_OF_CONDUCT.md", "CONTRIBUTING.md", ".gitignore",
+	"_config.yml", "ISSUE_TEMPLATE.md", "icon.png", "icon.ico"
+]
+
+[dependencies]
+adi_gpu_base = { path = "../adi_gpu_base" }
+asi_opengl = { path = "../asi_opengl" }
+ami = "^0.6"
+awi = { path = "../awi" } # "^0.2"
+afi = { path = "../afi" } # "0.3.1"
