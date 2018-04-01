@@ -40,4 +40,4 @@ adi_gpu_base = { path = "../adi_gpu_base" }
 asi_opengl = { path = "../asi_opengl" }
 ami = "^0.6"
 awi = { path = "../awi" } # "^0.2"
-afi = { path = "../afi" } # "0.3.1"
+afi = "^0.3.2"
