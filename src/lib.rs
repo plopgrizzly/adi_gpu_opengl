@@ -31,11 +31,15 @@ const SHADER_TEX_FRAG: &'static [u8] = include_bytes!("shaders/texture-frag.glsl
 const SHADER_TEX_VERT: &'static [u8] = include_bytes!("shaders/texture-vert.glsl");
 const SHADER_FADED_VERT: &'static [u8] = include_bytes!("shaders/faded-vert.glsl");
 const SHADER_TINTED_FRAG: &'static [u8] = include_bytes!("shaders/tinted-frag.glsl");
+const SHADER_COMPLEX_VERT: &'static [u8] = include_bytes!("shaders/complex-vert.glsl");
+const SHADER_COMPLEX_FRAG: &'static [u8] = include_bytes!("shaders/complex-frag.glsl");
 
 const STYLE_GRADIENT: usize = 0;
 const STYLE_TEXTURE: usize = 1;
 const STYLE_FADED: usize = 2;
-const STYLE_SOLID: usize = 3;
+const STYLE_TINTED: usize = 3;
+const STYLE_SOLID: usize = 4;
+const STYLE_COMPLEX: usize = 5;
 
 struct Style {
 	shader: u32,
@@ -45,17 +49,18 @@ struct Style {
 	has_fog: i32,
 	fog: i32,
 	range: i32,
-	texture: i32,
+//	texture: i32,
 	alpha: i32,
 	color: i32,
 	position: asi_opengl::Attribute,
-	texpos_color: asi_opengl::Attribute,
+	texpos: asi_opengl::Attribute,
+	acolor: asi_opengl::Attribute,
 }
 
 impl Style {
 	// Create a new style.
 	fn new(context: &OpenGL, vert: &[u8], frag: &[u8], t: bool, a: bool,
-		c: bool) -> Style
+		c: bool, g: bool) -> Style
 	{
 		let shader = context.shader(vert, frag);
 		let matrix_uniform = context.uniform(shader, b"models_tfm\0");
@@ -64,23 +69,27 @@ impl Style {
 		let has_fog = context.uniform(shader, b"has_fog\0");
 		let fog = context.uniform(shader, b"fog\0");
 		let range = context.uniform(shader, b"range\0");
-		let texture = if t { context.uniform(shader, b"texture\0") }
-			else { -1 };
+//		let texture = if t { context.uniform(shader, b"texture\0") }
+//			else { -1 };
 		let alpha = if a { context.uniform(shader, b"alpha\0") }
 			else { -1 };
 		let color = if c { context.uniform(shader, b"color\0") }
 			else { -1 };
 		let position = context.attribute(shader, b"position\0");
-		let texpos_color = if t {
+		let texpos = if t {
 			context.attribute(shader, b"texpos\0")
 		} else {
+			asi_opengl::Attribute(-1)
+		};
+		let acolor = if g {
 			context.attribute(shader, b"acolor\0")
+		} else {
+			asi_opengl::Attribute(-1)
 		};
 
 		Style {
 			shader, matrix_uniform, has_camera, camera_uniform, fog,
-			range, texture, position, texpos_color, alpha, has_fog,
-			color,
+			range, position, texpos, alpha, has_fog, color, acolor,
 		}
 	}
 }
@@ -94,6 +103,7 @@ struct ShapeData {
 	buffers: [u32; 2],
 	has_fog: bool,
 	alpha: Option<f32>,
+	color: Option<[f32; 4]>,
 	tf_matrix: [f32; 16], // Transformation matrix.
 	texture: Option<asi_opengl::Texture>,
 	vertex_buffer: u32,
@@ -146,7 +156,7 @@ pub struct Display {
 	gradients: Vec<GradientData>,
 	opaque_sorted: Vec<u32>,
 	alpha_sorted: Vec<u32>,
-	styles: [Style; 4],
+	styles: [Style; 6],
 //	default_tc: u32,
 //	upsidedown_tc: u32,
 	xyz: (f32,f32,f32),
@@ -191,18 +201,30 @@ impl base::Display for Display {
 			context.enable(0x0B71/*GL_DEPTH_TEST*/);
 
 			// Load shaders
+			let style_solid = Style::new(&context,
+				SHADER_SOLID_VERT, SHADER_SOLID_FRAG,
+				false/*texture*/,false/*alpha*/,true/*color*/,
+				false/*gradient*/);
 			let style_gradient = Style::new(&context,
 				SHADER_GRADIENT_VERT, SHADER_GRADIENT_FRAG,
-				false/*texture*/,false/*alpha*/,false/*color*/);
+				false/*texture*/,false/*alpha*/,false/*color*/,
+				true/*gradient*/);
 			let style_texture = Style::new(&context,
 				SHADER_TEX_VERT, SHADER_TEX_FRAG,
-				true/*texture*/,false/*alpha*/,false/*color*/);
+				true/*texture*/,false/*alpha*/,false/*color*/,
+				false/*gradient*/);
 			let style_faded = Style::new(&context,
 				SHADER_FADED_VERT, SHADER_TEX_FRAG,
-				true/*texture*/,true/*alpha*/,false/*color*/);
+				true/*texture*/,true/*alpha*/,false/*color*/,
+				false/*gradient*/);
 			let style_tinted = Style::new(&context,
 				SHADER_TEX_VERT, SHADER_TINTED_FRAG,
-				true/*texture*/,false/*alpha*/,true/*color*/);
+				true/*texture*/,false/*alpha*/,true/*color*/,
+				false/*gradient*/);
+			let style_complex = Style::new(&context,
+				SHADER_COMPLEX_VERT, SHADER_COMPLEX_FRAG,
+				true/*texture*/,false/*alpha*/,false/*color*/,
+				true/*gradient*/);
 
 			// Generate buffers
 			/* let tcs = context.new_buffers(2);
@@ -252,7 +274,8 @@ impl base::Display for Display {
 					style_texture,
 					style_faded,
 					style_tinted,
-					
+					style_solid,
+					style_complex,
 				],
 				xyz: (0.0, 0.0, 0.0),
 				rotate_xyz: (0.0, 0.0, 0.0),
@@ -278,7 +301,12 @@ impl base::Display for Display {
 		self.context.color(color.0, color.1, color.2);
 	}
 
-	fn update(&mut self) {
+	fn update(&mut self) -> Option<awi::Input> {
+		if let Some(input) = self.window.update() {
+			return Some(input);
+		}
+
+		// Update Window:
 		self.context.clear();
 
 		// TODO: This is copied pretty much from adi_gpu_vulkan.  Move
@@ -327,6 +355,8 @@ impl base::Display for Display {
 		// end todo
 
 		self.context.update();
+		// Return None, there was no input, updated screen.
+		None
 	}
 
 	fn camera(&mut self, xyz: (f32,f32,f32), rotate_xyz: (f32,f32,f32)) {
@@ -490,25 +520,24 @@ impl base::Display for Display {
 		color: [f32; 4], blending: bool, fancy: bool, fog: bool,
 		camera: bool) -> Shape
 	{
-		unimplemented!();
-
-/*		let shape = ShapeData {
+		let shape = ShapeData {
 			style: STYLE_SOLID,
-			indices: self.models[model.0],
-			num_buffers: 1,
+			index_buffer: self.models[model.0].index_buffer,
+			index_count: self.models[model.0].index_count,
+			num_buffers: 0,
 			buffers: [
-				self.texcoords[texcoords].vertex_buffer,
+				unsafe { mem::uninitialized() },
 				unsafe { mem::uninitialized() }
 			],
 			has_fog: fog,
 			alpha: None,
+			color: Some(color),
 			texture: None,
 			vertex_buffer: self.models[model.0].vertex_buffer,
-			vertice_count: self.models[model.0].indice_count,
-			offset: self.models[model.0].offset,
+			vertice_count: self.models[model.0].vertex_count,
 			bounds: self.models[model.0].bounds,
 			center: self.models[model.0].center,
-			position: Mat4(mat4) * self.models[model.0].center,
+			position: transform * self.models[model.0].center,
 			tf_matrix: transform.0, // Transformation matrix.
 		};
 
@@ -519,15 +548,6 @@ impl base::Display for Display {
 			base::ShapeHandle::Alpha(self.alpha_octree.add(shape))
 		} else {
 			base::ShapeHandle::Opaque(self.opaque_octree.add(shape))
-		})*/
-
-		// TODO
-		base::new_shape(if !camera && !fog {
-			base::ShapeHandle::Gui(0)
-		} else if blending {
-			base::ShapeHandle::Alpha(0)
-		} else {
-			base::ShapeHandle::Opaque(0)
 		})
 	}
 
@@ -536,6 +556,13 @@ impl base::Display for Display {
 		colors: Gradient, blending: bool, fancy: bool, fog: bool,
 		camera: bool) -> Shape
 	{
+		// TODO: is copied from adi_gpu_vulkan, move to base
+		if self.models[model.0].vertex_count
+			!= self.gradients[colors.0].vertex_count
+		{
+			panic!("TexCoord length doesn't match gradient length");
+		}
+
 		let shape = ShapeData {
 			style: STYLE_GRADIENT,
 			index_buffer: self.models[model.0].index_buffer,
@@ -547,6 +574,7 @@ impl base::Display for Display {
 			],
 			has_fog: fog,
 			alpha: None,
+			color: None,
 			texture: None,
 			vertex_buffer: self.models[model.0].vertex_buffer,
 			vertice_count: self.models[model.0].vertex_count,
@@ -573,7 +601,14 @@ impl base::Display for Display {
 		texture: Texture, tc: TexCoords, blending: bool, fancy: bool,
 		fog: bool, camera: bool) -> Shape
 	{
-		let shape = ShapeData {
+		// TODO: from adi_gpu_vulkan, move to the base
+		if self.models[model.0].vertex_count
+			!= self.texcoords[tc.0].vertex_count
+		{
+			panic!("TexCoord length doesn't match vertex length");
+		}
+
+		 let shape = ShapeData {
 			style: STYLE_TEXTURE,
 			index_buffer: self.models[model.0].index_buffer,
 			index_count: self.models[model.0].index_count,
@@ -584,6 +619,7 @@ impl base::Display for Display {
 			],
 			has_fog: fog,
 			alpha: None,
+			color: None,
 			texture: Some(texture.t),
 			vertex_buffer: self.models[model.0].vertex_buffer,
 			vertice_count: self.models[model.0].vertex_count,
@@ -608,6 +644,13 @@ impl base::Display for Display {
 		texture: Texture, tc: TexCoords, alpha: f32, fancy: bool,
 		fog: bool, camera: bool) -> Shape
 	{
+		// TODO: from adi_gpu_vulkan, move to the base
+		if self.models[model.0].vertex_count
+			!= self.texcoords[tc.0].vertex_count
+		{
+			panic!("TexCoord length doesn't match vertex length");
+		}
+
 		let shape = ShapeData {
 			style: STYLE_FADED,
 			index_buffer: self.models[model.0].index_buffer,
@@ -619,6 +662,7 @@ impl base::Display for Display {
 			],
 			has_fog: fog,
 			alpha: Some(alpha),
+			color: None,
 			texture: Some(texture.t),
 			vertex_buffer: self.models[model.0].vertex_buffer,
 			vertice_count: self.models[model.0].vertex_count,
@@ -641,16 +685,41 @@ impl base::Display for Display {
 		texture: Texture, tc: TexCoords, tint: [f32; 4], blending: bool,
 		fancy: bool, fog: bool, camera: bool) -> Shape
 	{
-		unimplemented!();
+		// TODO: from adi_gpu_vulkan, move to the base
+		if self.models[model.0].vertex_count
+			!= self.texcoords[tc.0].vertex_count
+		{
+			panic!("TexCoord length doesn't match vertex length");
+		}
 
-		// TODO
+		let shape = ShapeData {
+			style: STYLE_TINTED,
+			index_buffer: self.models[model.0].index_buffer,
+			index_count: self.models[model.0].index_count,
+			num_buffers: 1,
+			buffers: [
+				self.texcoords[tc.0].vertex_buffer,
+				unsafe { mem::uninitialized() },
+			],
+			has_fog: fog,
+			alpha: None,
+			color: Some(tint),
+			texture: Some(texture.t),
+			vertex_buffer: self.models[model.0].vertex_buffer,
+			vertice_count: self.models[model.0].vertex_count,
+			bounds: self.models[model.0].bounds,
+			center: self.models[model.0].center,
+			position: transform * self.models[model.0].center,
+			tf_matrix: transform.0, // Transformation matrix.
+		};
+
 		base::new_shape(if !camera && !fog {
-//			self.gui_vec.push(shape);
-			base::ShapeHandle::Gui(0)//self.gui_vec.len() as u32 - 1)
+			self.gui_vec.push(shape);
+			base::ShapeHandle::Gui(self.gui_vec.len() as u32 - 1)
 		} else if blending {
-			base::ShapeHandle::Alpha(0)//self.alpha_octree.add(shape))
+			base::ShapeHandle::Alpha(self.alpha_octree.add(shape))
 		} else {
-			base::ShapeHandle::Opaque(0)//self.opaque_octree.add(shape))
+			base::ShapeHandle::Opaque(self.opaque_octree.add(shape))
 		})
 	}
 
@@ -659,16 +728,48 @@ impl base::Display for Display {
 		texture: Texture, tc: TexCoords, tints: Gradient,
 		blending: bool, fancy: bool, fog: bool, camera: bool) -> Shape
 	{
-		unimplemented!();
+		// TODO: from adi_gpu_vulkan, move to the base
+		if self.models[model.0].vertex_count
+			!= self.texcoords[tc.0].vertex_count
+		{
+			panic!("TexCoord length doesn't match vertex length");
+		}
 
-		// TODO
+		// TODO: is copied from adi_gpu_vulkan, move to base
+		if self.models[model.0].vertex_count
+			!= self.gradients[tints.0].vertex_count
+		{
+			panic!("TexCoord length doesn't match gradient length");
+		}
+
+		let shape = ShapeData {
+			style: STYLE_COMPLEX,
+			index_buffer: self.models[model.0].index_buffer,
+			index_count: self.models[model.0].index_count,
+			num_buffers: 2,
+			buffers: [
+				self.texcoords[tc.0].vertex_buffer,
+				self.gradients[tints.0].vertex_buffer,
+			],
+			has_fog: fog,
+			alpha: None,
+			color: None,
+			texture: Some(texture.t),
+			vertex_buffer: self.models[model.0].vertex_buffer,
+			vertice_count: self.models[model.0].vertex_count,
+			bounds: self.models[model.0].bounds,
+			center: self.models[model.0].center,
+			position: transform * self.models[model.0].center,
+			tf_matrix: transform.0, // Transformation matrix.
+		};
+
 		base::new_shape(if !camera && !fog {
-//			self.gui_vec.push(shape);
-			base::ShapeHandle::Gui(0)//self.gui_vec.len() as u32 - 1)
+			self.gui_vec.push(shape);
+			base::ShapeHandle::Gui(self.gui_vec.len() as u32 - 1)
 		} else if blending {
-			base::ShapeHandle::Alpha(0)//self.alpha_octree.add(shape))
+			base::ShapeHandle::Alpha(self.alpha_octree.add(shape))
 		} else {
-			base::ShapeHandle::Opaque(0)//self.opaque_octree.add(shape))
+			base::ShapeHandle::Opaque(self.opaque_octree.add(shape))
 		})
 	}
 
@@ -708,15 +809,26 @@ impl base::Display for Display {
 	}
 
 	fn resize(&mut self, wh: (u32, u32)) -> () {
+		let xyz = self.xyz;
+		let rotate_xyz = self.rotate_xyz;
+
+		self.ar = wh.0 as f32 / wh.1 as f32;
+		self.frustum = ::ami::Frustum::new(
+			self.frustum.center,
+			self.frustum.radius,
+			90.0, 2.0 * ((45.0 * ::std::f32::consts::PI / 180.0)
+				.tan() / self.ar).atan(),
+			self.frustum.xrot, self.frustum.yrot);
+
 		self.context.viewport(wh.0, wh.1);
+
+		self.projection = ::base::projection(self.ar, 90.0)
+			.scale(1.0, -1.0, 1.0);;
+		self.camera(xyz, rotate_xyz);
 	}
 
 	fn wh(&self) -> (u32, u32) {
 		self.window.wh()
-	}
-
-	fn input(&mut self) -> Option<awi::Input> {
-		self.window.input()
 	}
 }
 
@@ -738,22 +850,28 @@ fn draw_shape(context: &OpenGL, style: &Style, shape: &ShapeData) {
 	context.use_program(style.shader);
 	context.set_mat4(style.matrix_uniform, &shape.tf_matrix);
 
-	if style.texture != -1 {
+	if style.texpos.0 != -1 {
 		// Bind texture coordinates buffer
 		context.bind_buffer(false, shape.buffers[0]);
 		// Bind vertex buffer to attribute
-		context.vertex_attrib(&style.texpos_color);
+		context.vertex_attrib(&style.texpos);
 		// Bind the texture
 		context.use_texture(&shape.texture.unwrap());
-	} else {
+	}
+
+	if style.acolor.0 != -1 {
 		// Bind color buffer
 		context.bind_buffer(false, shape.buffers[0]);
 		// Bind vertex buffer to attribute
-		context.vertex_attrib(&style.texpos_color);
+		context.vertex_attrib(&style.acolor);
 	}
 
 	if style.alpha != -1 {
 		context.set_vec1(style.alpha, shape.alpha.unwrap());
+	}
+
+	if style.color != -1 {
+		context.set_vec4(style.color, &shape.color.unwrap());
 	}
 
 	if shape.has_fog {
