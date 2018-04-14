@@ -69,8 +69,6 @@ impl Style {
 		let has_fog = context.uniform(shader, b"has_fog\0");
 		let fog = context.uniform(shader, b"fog\0");
 		let range = context.uniform(shader, b"range\0");
-//		let texture = if t { context.uniform(shader, b"texture\0") }
-//			else { -1 };
 		let alpha = if a { context.uniform(shader, b"alpha\0") }
 			else { -1 };
 		let color = if c { context.uniform(shader, b"color\0") }
@@ -157,8 +155,6 @@ pub struct Display {
 	opaque_sorted: Vec<u32>,
 	alpha_sorted: Vec<u32>,
 	styles: [Style; 6],
-//	default_tc: u32,
-//	upsidedown_tc: u32,
 	xyz: (f32,f32,f32),
 	rotate_xyz: (f32,f32,f32),
 	frustum: ::ami::Frustum,
@@ -171,15 +167,22 @@ impl base::Display for Display {
 
 	fn new(title: &str, icon: &afi::Graphic) -> Option<Self> {
 		if let Some(tuple) = OpenGLBuilder::new() {
+			println!("DEBUG: SOME BUILDER RECV");
+		
 			let (builder, v) = tuple;
 			let window = awi::Window::new(title, &icon, Some(v));
 
+			println!("DEBUG: TO_OPENGL NEXT");
+			
 			let context = builder.to_opengl(match window.get_connection() {
 				WindowConnection::Xcb(_, window) => // |
 				//	WindowConnection::Windows(_, window) =>
 				{
 					unsafe {mem::transmute(window as usize)}
 				},
+				WindowConnection::Windows(_, window) => {
+					window
+				}
 				WindowConnection::Wayland => return None,
 				WindowConnection::DirectFB => return None,
 				WindowConnection::Android => return None,
@@ -189,7 +192,6 @@ impl base::Display for Display {
 				WindowConnection::Switch => return None,
 				WindowConnection::Web => return None,
 				WindowConnection::NoOS => return None,
-				_ => return None // TODO
 			});
 
 			// Set the settings.
@@ -223,28 +225,6 @@ impl base::Display for Display {
 				SHADER_COMPLEX_VERT, SHADER_COMPLEX_FRAG,
 				true/*texture*/,false/*alpha*/,false/*color*/,
 				true/*gradient*/);
-
-			// Generate buffers
-			/* let tcs = context.new_buffers(2);
-
-			let default_tc = tcs[0];
-			let upsidedown_tc = tcs[1];
-
-			context.bind_buffer(false, default_tc);
-			context.set_buffer(false, &[
-				0.0, 1.0,
-				0.0, 0.0,
-				1.0, 0.0,
-				1.0, 1.0,
-			]);
-
-			context.bind_buffer(false, upsidedown_tc);
-			context.set_buffer(false, &[
-				0.0, 0.0,
-				0.0, 1.0,
-				1.0, 1.0,
-				1.0, 0.0,
-			]);*/
 
 			let wh = window.wh();
 			let ar = wh.0 as f32 / wh.1 as f32;
