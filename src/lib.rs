@@ -104,7 +104,7 @@ struct ShapeData {
 	has_fog: bool,
 	alpha: Option<f32>,
 	color: Option<[f32; 4]>,
-	tf_matrix: [f32; 16], // Transformation matrix.
+	transform: ami::Mat4, // Transformation matrix.
 	texture: Option<asi_opengl::Texture>,
 	vertex_buffer: u32,
 	vertice_count: u32,
@@ -197,8 +197,6 @@ impl base::Display for Display {
 			context.enable(0x0B44/*CULL_FACE*/);
 			context.enable(0x0BE2/*BLEND*/);
 			context.blend();
-			// TODO: enable for 3d / disable for 2d
-			context.enable(0x0B71/*GL_DEPTH_TEST*/);
 
 			// Load shaders
 			let style_solid = Style::new(&context,
@@ -251,8 +249,7 @@ impl base::Display for Display {
 			let wh = window.wh();
 			let ar = wh.0 as f32 / wh.1 as f32;
 
-			let projection = base::projection(ar, 90.0)
-				.scale(1.0, -1.0, 1.0);
+			let projection = base::projection(ar, 90.0);
 
 			// Adjust the viewport
 			context.viewport(wh.0, wh.1);
@@ -325,6 +322,9 @@ impl base::Display for Display {
 			self.context.set_int1(i.has_camera, 1);
 		}
 
+		// Enable for 3D depth testing
+		self.context.enable(0x0B71/*GL_DEPTH_TEST*/);
+
 		self.opaque_octree.nearest(&mut self.opaque_sorted, frustum);
 		for id in self.opaque_sorted.iter() {
 			let shape = &self.opaque_octree[*id];
@@ -340,6 +340,9 @@ impl base::Display for Display {
 			draw_shape(&self.context, &self.styles[shape.style],
 				shape);
 		}
+
+		// Disable Depth Testing for GUI
+		self.context.disable(0x0B71/*GL_DEPTH_TEST*/);
 
 		// Gui Elements don't want a camera.
 		for i in (&self.styles).iter() {
@@ -512,13 +515,14 @@ impl base::Display for Display {
 	}
 
 	fn set_texture(&mut self, texture: &mut Self::Texture, pixels: &[u32]) {
-//		self.renderer.set_texture(texture, pixels);
+		self.context.use_texture(&texture.t);
+		self.context.texture_update(texture.w, texture.h, pixels);
 	}
 
 	#[inline(always)]
 	fn shape_solid(&mut self, model: &Model, transform: Mat4,
-		color: [f32; 4], blending: bool, fancy: bool, fog: bool,
-		camera: bool) -> Shape
+		color: [f32; 4], blending: bool, fog: bool, camera: bool)
+		-> Shape
 	{
 		let shape = ShapeData {
 			style: STYLE_SOLID,
@@ -538,7 +542,7 @@ impl base::Display for Display {
 			bounds: self.models[model.0].bounds,
 			center: self.models[model.0].center,
 			position: transform * self.models[model.0].center,
-			tf_matrix: transform.0, // Transformation matrix.
+			transform, // Transformation matrix.
 		};
 
 		base::new_shape(if !camera && !fog {
@@ -553,8 +557,8 @@ impl base::Display for Display {
 
 	#[inline(always)]
 	fn shape_gradient(&mut self, model: &Model, transform: Mat4,
-		colors: Gradient, blending: bool, fancy: bool, fog: bool,
-		camera: bool) -> Shape
+		colors: Gradient, blending: bool, fog: bool, camera: bool)
+		-> Shape
 	{
 		// TODO: is copied from adi_gpu_vulkan, move to base
 		if self.models[model.0].vertex_count
@@ -581,7 +585,7 @@ impl base::Display for Display {
 			bounds: self.models[model.0].bounds,
 			center: self.models[model.0].center,
 			position: transform * self.models[model.0].center,
-			tf_matrix: transform.0, // Transformation matrix.
+			transform, // Transformation matrix.
 		};
 
 		println!("JUST SET: {}", shape.vertex_buffer);
@@ -598,8 +602,8 @@ impl base::Display for Display {
 
 	#[inline(always)]
 	fn shape_texture(&mut self, model: &Model, transform: Mat4,
-		texture: Texture, tc: TexCoords, blending: bool, fancy: bool,
-		fog: bool, camera: bool) -> Shape
+		texture: Texture, tc: TexCoords, blending: bool, fog: bool,
+		camera: bool) -> Shape
 	{
 		// TODO: from adi_gpu_vulkan, move to the base
 		if self.models[model.0].vertex_count
@@ -608,7 +612,7 @@ impl base::Display for Display {
 			panic!("TexCoord length doesn't match vertex length");
 		}
 
-		 let shape = ShapeData {
+		let shape = ShapeData {
 			style: STYLE_TEXTURE,
 			index_buffer: self.models[model.0].index_buffer,
 			index_count: self.models[model.0].index_count,
@@ -626,7 +630,7 @@ impl base::Display for Display {
 			bounds: self.models[model.0].bounds,
 			center: self.models[model.0].center,
 			position: transform * self.models[model.0].center,
-			tf_matrix: transform.0, // Transformation matrix.
+			transform, // Transformation matrix.
 		};
 
 		base::new_shape(if !camera && !fog {
@@ -641,8 +645,8 @@ impl base::Display for Display {
 
 	#[inline(always)]
 	fn shape_faded(&mut self, model: &Model, transform: Mat4,
-		texture: Texture, tc: TexCoords, alpha: f32, fancy: bool,
-		fog: bool, camera: bool) -> Shape
+		texture: Texture, tc: TexCoords, alpha: f32, fog: bool,
+		camera: bool) -> Shape
 	{
 		// TODO: from adi_gpu_vulkan, move to the base
 		if self.models[model.0].vertex_count
@@ -669,7 +673,7 @@ impl base::Display for Display {
 			bounds: self.models[model.0].bounds,
 			center: self.models[model.0].center,
 			position: transform * self.models[model.0].center,
-			tf_matrix: transform.0, // Transformation matrix.
+			transform, // Transformation matrix.
 		};
 
 		base::new_shape(if !camera && !fog {
@@ -683,7 +687,7 @@ impl base::Display for Display {
 	#[inline(always)]
 	fn shape_tinted(&mut self, model: &Model, transform: Mat4,
 		texture: Texture, tc: TexCoords, tint: [f32; 4], blending: bool,
-		fancy: bool, fog: bool, camera: bool) -> Shape
+		fog: bool, camera: bool) -> Shape
 	{
 		// TODO: from adi_gpu_vulkan, move to the base
 		if self.models[model.0].vertex_count
@@ -710,7 +714,7 @@ impl base::Display for Display {
 			bounds: self.models[model.0].bounds,
 			center: self.models[model.0].center,
 			position: transform * self.models[model.0].center,
-			tf_matrix: transform.0, // Transformation matrix.
+			transform, // Transformation matrix.
 		};
 
 		base::new_shape(if !camera && !fog {
@@ -726,7 +730,7 @@ impl base::Display for Display {
 	#[inline(always)]
 	fn shape_complex(&mut self, model: &Model, transform: Mat4,
 		texture: Texture, tc: TexCoords, tints: Gradient,
-		blending: bool, fancy: bool, fog: bool, camera: bool) -> Shape
+		blending: bool, fog: bool, camera: bool) -> Shape
 	{
 		// TODO: from adi_gpu_vulkan, move to the base
 		if self.models[model.0].vertex_count
@@ -760,7 +764,7 @@ impl base::Display for Display {
 			bounds: self.models[model.0].bounds,
 			center: self.models[model.0].center,
 			position: transform * self.models[model.0].center,
-			tf_matrix: transform.0, // Transformation matrix.
+			transform, // Transformation matrix.
 		};
 
 		base::new_shape(if !camera && !fog {
@@ -773,37 +777,35 @@ impl base::Display for Display {
 		})
 	}
 
-	fn transform(&mut self, shape: &mut Shape, transform: &Mat4) {
+	fn transform(&mut self, shape: &mut Shape, transform: Mat4) {
 		// TODO: put in base, some is copy from vulkan implementation.
-		let uniform = transform.0;
-
 		match base::get_shape(shape) {
 			ShapeHandle::Opaque(ref mut x) => {
 				let mut shape = self.opaque_octree[*x].clone();
 
-				shape.position = *transform *
+				shape.position = transform *
 					self.opaque_octree[*x].center;
 				self.opaque_octree.modify(x, shape);
 
-				self.opaque_octree[*x].tf_matrix = uniform;
+				self.opaque_octree[*x].transform = transform;
 			},
 			ShapeHandle::Alpha(ref mut x) => {
 				let mut shape = self.alpha_octree[*x].clone();
 
-				shape.position = *transform *
+				shape.position = transform *
 					self.alpha_octree[*x].center;
 				self.alpha_octree.modify(x, shape);
 
-				self.alpha_octree[*x].tf_matrix = uniform;
+				self.alpha_octree[*x].transform = transform;
 			},
 			ShapeHandle::Gui(x) => {
 				let x = x as usize; // for indexing
 				let mut shape = self.gui_vec[x].clone();
 
-				shape.position = *transform *
+				shape.position = transform *
 					self.gui_vec[x].center;
 
-				self.gui_vec[x].tf_matrix = uniform;
+				self.gui_vec[x].transform = transform;
 			},
 		}
 	}
@@ -822,8 +824,7 @@ impl base::Display for Display {
 
 		self.context.viewport(wh.0, wh.1);
 
-		self.projection = ::base::projection(self.ar, 90.0)
-			.scale(1.0, -1.0, 1.0);;
+		self.projection = ::base::projection(self.ar, 90.0);
 		self.camera(xyz, rotate_xyz);
 	}
 
@@ -848,7 +849,7 @@ impl base::Texture for Texture {
 
 fn draw_shape(context: &OpenGL, style: &Style, shape: &ShapeData) {
 	context.use_program(style.shader);
-	context.set_mat4(style.matrix_uniform, &shape.tf_matrix);
+	context.set_mat4(style.matrix_uniform, &shape.transform.0);
 
 	if style.texpos.0 != -1 {
 		// Bind texture coordinates buffer
