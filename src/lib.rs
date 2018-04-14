@@ -5,7 +5,6 @@
 //! OpenGL implementation for adi_gpu.
 
 extern crate ami;
-extern crate awi;
 extern crate afi;
 extern crate asi_opengl;
 extern crate adi_gpu_base;
@@ -20,8 +19,7 @@ pub use base::TexCoords;
 use ami::*;
 use adi_gpu_base as base;
 use asi_opengl::{ OpenGL, OpenGLBuilder };
-use awi::WindowConnection;
-use adi_gpu_base::ShapeHandle;
+use adi_gpu_base::{ WindowConnection, ShapeHandle };
 
 const SHADER_SOLID_FRAG: &'static [u8] = include_bytes!("shaders/solid-frag.glsl");
 const SHADER_SOLID_VERT: &'static [u8] = include_bytes!("shaders/solid-vert.glsl");
@@ -143,7 +141,7 @@ impl ::ami::Pos for ShapeData {
 
 /// To render anything with adi_gpu, you have to make a `Display`
 pub struct Display {
-	window: awi::Window,
+	window: adi_gpu_base::Window,
 	context: OpenGL,
 	color: (f32, f32, f32),
 	opaque_octree: ::ami::Octree<ShapeData>,
@@ -167,13 +165,10 @@ impl base::Display for Display {
 
 	fn new(title: &str, icon: &afi::Graphic) -> Option<Self> {
 		if let Some(tuple) = OpenGLBuilder::new() {
-			println!("DEBUG: SOME BUILDER RECV");
-		
 			let (builder, v) = tuple;
-			let window = awi::Window::new(title, &icon, Some(v));
+			let window = adi_gpu_base::Window::new(title, &icon,
+				Some(v));
 
-			println!("DEBUG: TO_OPENGL NEXT");
-			
 			let context = builder.to_opengl(match window.get_connection() {
 				WindowConnection::Xcb(_, window) => // |
 				//	WindowConnection::Windows(_, window) =>
@@ -278,7 +273,7 @@ impl base::Display for Display {
 		self.context.color(color.0, color.1, color.2);
 	}
 
-	fn update(&mut self) -> Option<awi::Input> {
+	fn update(&mut self) -> Option<adi_gpu_base::Input> {
 		if let Some(input) = self.window.update() {
 			return Some(input);
 		}

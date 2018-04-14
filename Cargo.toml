@@ -36,8 +36,7 @@ exclude = [
 ]
 
 [dependencies]
-adi_gpu_base = { path = "../adi_gpu_base" }
-asi_opengl = { path = "../asi_opengl" }
+adi_gpu_base = "^0.2"
+asi_opengl = "^0.1"
 ami = "^0.6"
-awi = { path = "../awi" } # "^0.2"
 afi = "^0.3.2"
