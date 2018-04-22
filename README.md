@@ -1,4 +1,4 @@
-# adi_gpu_opengl 0.2.0
+# adi_gpu_opengl 0.2
 OpenGL implementation for adi_gpu
 
 [Cargo](https://crates.io/crates/adi_gpu_opengl) /
