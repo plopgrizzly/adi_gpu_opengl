@@ -5,7 +5,6 @@
 //! OpenGL implementation for adi_gpu.
 
 extern crate ami;
-extern crate afi;
 extern crate asi_opengl;
 extern crate adi_gpu_base;
 
@@ -19,7 +18,7 @@ pub use base::TexCoords;
 use ami::*;
 use adi_gpu_base as base;
 use asi_opengl::{ OpenGL, OpenGLBuilder };
-use adi_gpu_base::{ WindowConnection, ShapeHandle };
+use adi_gpu_base::{ Graphic, WindowConnection, ShapeHandle };
 
 const SHADER_SOLID_FRAG: &'static [u8] = include_bytes!("shaders/solid-frag.glsl");
 const SHADER_SOLID_VERT: &'static [u8] = include_bytes!("shaders/solid-vert.glsl");
@@ -163,11 +162,11 @@ pub struct Display {
 impl base::Display for Display {
 	type Texture = Texture;
 
-	fn new(title: &str, icon: &afi::Graphic) -> Option<Self> {
+	fn new<G: AsRef<Graphic>>(title: &str, icon: G) -> Option<Self> {
 		if let Some(tuple) = OpenGLBuilder::new() {
 			let (builder, v) = tuple;
-			let window = adi_gpu_base::Window::new(title, &icon,
-				Some(v));
+			let window = adi_gpu_base::Window::new(title,
+				icon.as_ref(), Some(v));
 
 			let context = builder.to_opengl(match window.get_connection() {
 				WindowConnection::Xcb(_, window) => // |
@@ -442,8 +441,8 @@ impl base::Display for Display {
 		}
 	}
 
-	fn texture(&mut self, graphic: afi::Graphic) -> Texture {
-		let (w, h, pixels) = graphic.as_slice();
+	fn texture<G: AsRef<Graphic>>(&mut self, graphic: G) -> Texture {
+		let (w, h, pixels) = graphic.as_ref().as_slice();
 
 		let t = self.context.new_texture();
 
