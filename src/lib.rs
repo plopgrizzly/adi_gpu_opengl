@@ -92,8 +92,6 @@ impl Style {
 #[derive(Clone)]
 struct ShapeData {
 	style: usize,
-	index_buffer: u32,
-	index_count: u32,
 	num_buffers: usize,
 	buffers: [u32; 2],
 	has_fog: bool,
@@ -109,8 +107,6 @@ struct ShapeData {
 }
 
 struct ModelData {
-	index_buffer: u32,
-	index_count: u32,
 	vertex_buffer: u32,
 	// TODO alot could be in base as duplicate
 	vertex_count: u32,
@@ -355,19 +351,15 @@ impl base::Display for Display {
 		}
 	}
 
-	fn model(&mut self, vertices: &[f32], indices: &[u32]) -> Model {
+	fn model(&mut self, vertices: &[f32]) -> Model {
 		// TODO most is duplicate from other implementation.
 		let index = self.models.len();
 
-		let buffers = self.context.new_buffers(2);
+		let buffer = self.context.new_buffers(1)[0];
 
-		let index_buffer = buffers[0];
-		self.context.bind_buffer(true, index_buffer);
-		self.context.set_buffer(true, indices);
-
-		let vertex_buffer = buffers[1];
-		self.context.bind_buffer(false, vertex_buffer);
-		self.context.set_buffer(false, vertices);
+		let vertex_buffer = buffer;
+		self.context.bind_buffer(vertex_buffer);
+		self.context.set_buffer(vertices);
 
 		let mut xtot = vertices[0];
 		let mut ytot = vertices[1];
@@ -415,9 +407,7 @@ impl base::Display for Display {
 		let n = (vertices.len() / 4) as f32;
 
 		self.models.push(ModelData {
-			index_buffer, index_count: indices.len() as u32,
-			vertex_buffer,
-			vertex_count: vertices.len() as u32 / 4,
+			vertex_buffer, vertex_count: vertices.len() as u32 / 4,
 			bounds: [(xmin, xmax), (ymin, ymax), (zmin, zmax)],
 			center: ::ami::Vec3::new(xtot / n, ytot / n, ztot / n),
 		});
@@ -457,8 +447,8 @@ impl base::Display for Display {
 		// base.
 		let vertex_buffer = self.context.new_buffers(1)[0];
 
-		self.context.bind_buffer(false, vertex_buffer);
-		self.context.set_buffer(false, colors);
+		self.context.bind_buffer(vertex_buffer);
+		self.context.set_buffer(colors);
 
 		let a = self.gradients.len();
 
@@ -475,8 +465,8 @@ impl base::Display for Display {
 		// base.
 		let vertex_buffer = self.context.new_buffers(1)[0];
 
-		self.context.bind_buffer(false, vertex_buffer);
-		self.context.set_buffer(false, texcoords);
+		self.context.bind_buffer(vertex_buffer);
+		self.context.set_buffer(texcoords);
 
 		let a = self.texcoords.len();
 
@@ -500,8 +490,6 @@ impl base::Display for Display {
 	{
 		let shape = ShapeData {
 			style: STYLE_SOLID,
-			index_buffer: self.models[model.0].index_buffer,
-			index_count: self.models[model.0].index_count,
 			num_buffers: 0,
 			buffers: [
 				unsafe { mem::uninitialized() },
@@ -543,8 +531,6 @@ impl base::Display for Display {
 
 		let shape = ShapeData {
 			style: STYLE_GRADIENT,
-			index_buffer: self.models[model.0].index_buffer,
-			index_count: self.models[model.0].index_count,
 			num_buffers: 1,
 			buffers: [
 				self.gradients[colors.0].vertex_buffer,
@@ -588,8 +574,6 @@ impl base::Display for Display {
 
 		let shape = ShapeData {
 			style: STYLE_TEXTURE,
-			index_buffer: self.models[model.0].index_buffer,
-			index_count: self.models[model.0].index_count,
 			num_buffers: 1,
 			buffers: [
 				self.texcoords[tc.0].vertex_buffer,
@@ -631,8 +615,6 @@ impl base::Display for Display {
 
 		let shape = ShapeData {
 			style: STYLE_FADED,
-			index_buffer: self.models[model.0].index_buffer,
-			index_count: self.models[model.0].index_count,
 			num_buffers: 1,
 			buffers: [
 				self.texcoords[tc.0].vertex_buffer,
@@ -672,8 +654,6 @@ impl base::Display for Display {
 
 		let shape = ShapeData {
 			style: STYLE_TINTED,
-			index_buffer: self.models[model.0].index_buffer,
-			index_count: self.models[model.0].index_count,
 			num_buffers: 1,
 			buffers: [
 				self.texcoords[tc.0].vertex_buffer,
@@ -722,8 +702,6 @@ impl base::Display for Display {
 
 		let shape = ShapeData {
 			style: STYLE_COMPLEX,
-			index_buffer: self.models[model.0].index_buffer,
-			index_count: self.models[model.0].index_count,
 			num_buffers: 2,
 			buffers: [
 				self.texcoords[tc.0].vertex_buffer,
@@ -827,7 +805,7 @@ fn draw_shape(context: &OpenGL, style: &Style, shape: &ShapeData) {
 
 	if style.texpos.0 != -1 {
 		// Bind texture coordinates buffer
-		context.bind_buffer(false, shape.buffers[0]);
+		context.bind_buffer(shape.buffers[0]);
 		// Bind vertex buffer to attribute
 		context.vertex_attrib(&style.texpos);
 		// Bind the texture
@@ -836,7 +814,7 @@ fn draw_shape(context: &OpenGL, style: &Style, shape: &ShapeData) {
 
 	if style.acolor.0 != -1 {
 		// Bind color buffer
-		context.bind_buffer(false, shape.buffers[0]);
+		context.bind_buffer(shape.buffers[0]);
 		// Bind vertex buffer to attribute
 		context.vertex_attrib(&style.acolor);
 	}
@@ -855,8 +833,7 @@ fn draw_shape(context: &OpenGL, style: &Style, shape: &ShapeData) {
 		context.set_int1(style.has_fog, 0);
 	}
 
-	context.bind_buffer(true, shape.index_buffer);
-	context.bind_buffer(false, shape.vertex_buffer);
+	context.bind_buffer(shape.vertex_buffer);
 	context.vertex_attrib(&style.position);
-	context.draw_elements(shape.index_count);
+	context.draw_arrays(shape.vertice_count);
 }
