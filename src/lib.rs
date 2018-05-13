@@ -158,7 +158,9 @@ pub struct Display {
 impl base::Display for Display {
 	type Texture = Texture;
 
-	fn new<G: AsRef<Graphic>>(title: &str, icon: G) -> Option<Self> {
+	fn new<G: AsRef<Graphic>>(title: &str, icon: G)
+		-> Result<Self, &'static str>
+	{
 		if let Some(tuple) = OpenGLBuilder::new() {
 			let (builder, v) = tuple;
 			let window = adi_gpu_base::Window::new(title,
@@ -173,15 +175,24 @@ impl base::Display for Display {
 				WindowConnection::Windows(_, window) => {
 					window
 				}
-				WindowConnection::Wayland => return None,
-				WindowConnection::DirectFB => return None,
-				WindowConnection::Android => return None,
-				WindowConnection::IOS => return None,
-				WindowConnection::AldaronsOS => return None,
-				WindowConnection::Arduino => return None,
-				WindowConnection::Switch => return None,
-				WindowConnection::Web => return None,
-				WindowConnection::NoOS => return None,
+				WindowConnection::Wayland => return Err(
+					"OpenGL support on Wayland is WIP"),
+				WindowConnection::DirectFB => return Err(
+					"OpenGL support on DirectFB is WIP"),
+				WindowConnection::Android => return Err(
+					"OpenGL support on Android is WIP"),
+				WindowConnection::IOS => return Err(
+					"OpenGL support on iOS is WIP"),
+				WindowConnection::AldaronsOS => return Err(
+					"AldaronsOS doesn't support OpenGL"),
+				WindowConnection::Arduino => return Err(
+					"Arduino doesn't support OpenGL"),
+				WindowConnection::Switch => return Err(
+					"Nintendo Switch doesn't support OpenGL"),
+				WindowConnection::Web => return Err(
+					"WebGL support is WIP"),
+				WindowConnection::NoOS => return Err(
+					"NoOS doesn't support OpenGL"),
 			});
 
 			// Set the settings.
@@ -257,9 +268,9 @@ impl base::Display for Display {
 
 			display.camera((0.0, 0.0, 0.0), (0.0, 0.0, 0.0));
 
-			Some(display)
+			Ok(display)
 		} else {
-			None
+			Err("Couldn't find OpenGL!")
 		}
 	}
 
@@ -562,7 +573,7 @@ impl base::Display for Display {
 
 	#[inline(always)]
 	fn shape_texture(&mut self, model: &Model, transform: Mat4,
-		texture: Texture, tc: TexCoords, blending: bool, fog: bool,
+		texture: &Texture, tc: TexCoords, blending: bool, fog: bool,
 		camera: bool) -> Shape
 	{
 		// TODO: from adi_gpu_vulkan, move to the base
@@ -603,7 +614,7 @@ impl base::Display for Display {
 
 	#[inline(always)]
 	fn shape_faded(&mut self, model: &Model, transform: Mat4,
-		texture: Texture, tc: TexCoords, alpha: f32, fog: bool,
+		texture: &Texture, tc: TexCoords, alpha: f32, fog: bool,
 		camera: bool) -> Shape
 	{
 		// TODO: from adi_gpu_vulkan, move to the base
@@ -642,7 +653,7 @@ impl base::Display for Display {
 
 	#[inline(always)]
 	fn shape_tinted(&mut self, model: &Model, transform: Mat4,
-		texture: Texture, tc: TexCoords, tint: [f32; 4], blending: bool,
+		texture: &Texture, tc: TexCoords, tint: [f32; 4], blending: bool,
 		fog: bool, camera: bool) -> Shape
 	{
 		// TODO: from adi_gpu_vulkan, move to the base
@@ -683,7 +694,7 @@ impl base::Display for Display {
 
 	#[inline(always)]
 	fn shape_complex(&mut self, model: &Model, transform: Mat4,
-		texture: Texture, tc: TexCoords, tints: Gradient,
+		texture: &Texture, tc: TexCoords, tints: Gradient,
 		blending: bool, fog: bool, camera: bool) -> Shape
 	{
 		// TODO: from adi_gpu_vulkan, move to the base
