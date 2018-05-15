@@ -1,7 +1,6 @@
-// lib.rs -- Aldaron's Device Interface / GPU / OpenGL
-// Copyright (c) 2018  Jeron A. Lau <jeron.lau@plopgrizzly.com>
-// Licensed under the MIT LICENSE
-
+// "adi_gpu_opengl" crate - Licensed under the MIT LICENSE
+//  * Copyright (c) 2018  Jeron A. Lau <jeron.lau@plopgrizzly.com>
+//
 //! OpenGL implementation for adi_gpu.
 
 extern crate ami;
@@ -14,6 +13,7 @@ pub use base::Shape;
 pub use base::Gradient;
 pub use base::Model;
 pub use base::TexCoords;
+pub use base::Texture;
 
 use ami::*;
 use adi_gpu_base as base;
@@ -124,6 +124,12 @@ struct GradientData {
 	vertex_count: u32,
 }
 
+struct TextureData {
+	t: asi_opengl::Texture,
+	w: u32,
+	h: u32,
+}
+
 impl ::ami::Pos for ShapeData {
 	fn posf(&self) -> ::ami::Vec3<f32> {
 		self.position
@@ -145,6 +151,7 @@ pub struct Display {
 	models: Vec<ModelData>,
 	texcoords: Vec<TexcoordsData>,
 	gradients: Vec<GradientData>,
+	textures: Vec<TextureData>,
 	opaque_sorted: Vec<u32>,
 	alpha_sorted: Vec<u32>,
 	styles: [Style; 6],
@@ -155,125 +162,125 @@ pub struct Display {
 	projection: ::ami::Mat4,
 }
 
-impl base::Display for Display {
-	type Texture = Texture;
+pub fn new<G: AsRef<Graphic>>(title: &str, icon: G)
+	-> Result<Box<Display>, &'static str>
+{
+	if let Some(tuple) = OpenGLBuilder::new() {
+		let (builder, v) = tuple;
+		let window = adi_gpu_base::Window::new(title,
+			icon.as_ref(), Some(v));
 
-	fn new<G: AsRef<Graphic>>(title: &str, icon: G)
-		-> Result<Self, &'static str>
-	{
-		if let Some(tuple) = OpenGLBuilder::new() {
-			let (builder, v) = tuple;
-			let window = adi_gpu_base::Window::new(title,
-				icon.as_ref(), Some(v));
+		let context = builder.to_opengl(match window.get_connection() {
+			WindowConnection::Xcb(_, window) => // |
+			//	WindowConnection::Windows(_, window) =>
+			{
+				unsafe {mem::transmute(window as usize)}
+			},
+			WindowConnection::Windows(_, window) => {
+				window
+			}
+			WindowConnection::Wayland => return Err(
+				"OpenGL support on Wayland is WIP"),
+			WindowConnection::DirectFB => return Err(
+				"OpenGL support on DirectFB is WIP"),
+			WindowConnection::Android => return Err(
+				"OpenGL support on Android is WIP"),
+			WindowConnection::IOS => return Err(
+				"OpenGL support on iOS is WIP"),
+			WindowConnection::AldaronsOS => return Err(
+				"AldaronsOS doesn't support OpenGL"),
+			WindowConnection::Arduino => return Err(
+				"Arduino doesn't support OpenGL"),
+			WindowConnection::Switch => return Err(
+				"Nintendo Switch doesn't support OpenGL"),
+			WindowConnection::Web => return Err(
+				"WebGL support is WIP"),
+			WindowConnection::NoOS => return Err(
+				"NoOS doesn't support OpenGL"),
+		});
 
-			let context = builder.to_opengl(match window.get_connection() {
-				WindowConnection::Xcb(_, window) => // |
-				//	WindowConnection::Windows(_, window) =>
-				{
-					unsafe {mem::transmute(window as usize)}
-				},
-				WindowConnection::Windows(_, window) => {
-					window
-				}
-				WindowConnection::Wayland => return Err(
-					"OpenGL support on Wayland is WIP"),
-				WindowConnection::DirectFB => return Err(
-					"OpenGL support on DirectFB is WIP"),
-				WindowConnection::Android => return Err(
-					"OpenGL support on Android is WIP"),
-				WindowConnection::IOS => return Err(
-					"OpenGL support on iOS is WIP"),
-				WindowConnection::AldaronsOS => return Err(
-					"AldaronsOS doesn't support OpenGL"),
-				WindowConnection::Arduino => return Err(
-					"Arduino doesn't support OpenGL"),
-				WindowConnection::Switch => return Err(
-					"Nintendo Switch doesn't support OpenGL"),
-				WindowConnection::Web => return Err(
-					"WebGL support is WIP"),
-				WindowConnection::NoOS => return Err(
-					"NoOS doesn't support OpenGL"),
-			});
+		// Set the settings.
+		context.disable(0x0BD0 /*DITHER*/);
+		context.enable(0x0B44/*CULL_FACE*/);
+		context.enable(0x0BE2/*BLEND*/);
+		context.blend();
 
-			// Set the settings.
-			context.disable(0x0BD0 /*DITHER*/);
-			context.enable(0x0B44/*CULL_FACE*/);
-			context.enable(0x0BE2/*BLEND*/);
-			context.blend();
+		// Load shaders
+		let style_solid = Style::new(&context,
+			SHADER_SOLID_VERT, SHADER_SOLID_FRAG,
+			false/*texture*/,false/*alpha*/,true/*color*/,
+			false/*gradient*/);
+		let style_gradient = Style::new(&context,
+			SHADER_GRADIENT_VERT, SHADER_GRADIENT_FRAG,
+			false/*texture*/,false/*alpha*/,false/*color*/,
+			true/*gradient*/);
+		let style_texture = Style::new(&context,
+			SHADER_TEX_VERT, SHADER_TEX_FRAG,
+			true/*texture*/,false/*alpha*/,false/*color*/,
+			false/*gradient*/);
+		let style_faded = Style::new(&context,
+			SHADER_FADED_VERT, SHADER_TEX_FRAG,
+			true/*texture*/,true/*alpha*/,false/*color*/,
+			false/*gradient*/);
+		let style_tinted = Style::new(&context,
+			SHADER_TEX_VERT, SHADER_TINTED_FRAG,
+			true/*texture*/,false/*alpha*/,true/*color*/,
+			false/*gradient*/);
+		let style_complex = Style::new(&context,
+			SHADER_COMPLEX_VERT, SHADER_COMPLEX_FRAG,
+			true/*texture*/,false/*alpha*/,false/*color*/,
+			true/*gradient*/);
 
-			// Load shaders
-			let style_solid = Style::new(&context,
-				SHADER_SOLID_VERT, SHADER_SOLID_FRAG,
-				false/*texture*/,false/*alpha*/,true/*color*/,
-				false/*gradient*/);
-			let style_gradient = Style::new(&context,
-				SHADER_GRADIENT_VERT, SHADER_GRADIENT_FRAG,
-				false/*texture*/,false/*alpha*/,false/*color*/,
-				true/*gradient*/);
-			let style_texture = Style::new(&context,
-				SHADER_TEX_VERT, SHADER_TEX_FRAG,
-				true/*texture*/,false/*alpha*/,false/*color*/,
-				false/*gradient*/);
-			let style_faded = Style::new(&context,
-				SHADER_FADED_VERT, SHADER_TEX_FRAG,
-				true/*texture*/,true/*alpha*/,false/*color*/,
-				false/*gradient*/);
-			let style_tinted = Style::new(&context,
-				SHADER_TEX_VERT, SHADER_TINTED_FRAG,
-				true/*texture*/,false/*alpha*/,true/*color*/,
-				false/*gradient*/);
-			let style_complex = Style::new(&context,
-				SHADER_COMPLEX_VERT, SHADER_COMPLEX_FRAG,
-				true/*texture*/,false/*alpha*/,false/*color*/,
-				true/*gradient*/);
+		let wh = window.wh();
+		let ar = wh.0 as f32 / wh.1 as f32;
 
-			let wh = window.wh();
-			let ar = wh.0 as f32 / wh.1 as f32;
+		let projection = base::projection(ar, 90.0);
 
-			let projection = base::projection(ar, 90.0);
+		// Adjust the viewport
+		context.viewport(wh.0, wh.1);
 
-			// Adjust the viewport
-			context.viewport(wh.0, wh.1);
+		let mut display = ::Display {
+			window,
+			context,
+			color: (0.0, 0.0, 0.0),
+			alpha_octree: ::ami::Octree::new(),
+			opaque_octree: ::ami::Octree::new(),
+			gui_vec: Vec::new(),
+			opaque_sorted: Vec::new(),
+			alpha_sorted: Vec::new(),
+			models: Vec::new(),
+			texcoords: Vec::new(),
+			gradients: Vec::new(),
+			textures: Vec::new(),
+			styles: [
+				style_gradient,
+				style_texture,
+				style_faded,
+				style_tinted,
+				style_solid,
+				style_complex,
+			],
+			xyz: (0.0, 0.0, 0.0),
+			rotate_xyz: (0.0, 0.0, 0.0),
+			frustum: ::ami::Frustum::new(::ami::Vec3::new(0.0, 0.0, 0.0),
+				100.0 /* TODO: Based on fog.0 + fog.1 */, 90.0,
+				2.0 * ((45.0 * ::std::f32::consts::PI / 180.0).tan() / ar).atan(),
+				0.0, 0.0
+			), // TODO: COPIED FROM renderer/mod.rs
+			ar,
+			projection,
+		};
 
-			let mut display = Display {
-				window,
-				context,
-				color: (0.0, 0.0, 0.0),
-				alpha_octree: ::ami::Octree::new(),
-				opaque_octree: ::ami::Octree::new(),
-				gui_vec: Vec::new(),
-				opaque_sorted: Vec::new(),
-				alpha_sorted: Vec::new(),
-				models: Vec::new(),
-				texcoords: Vec::new(),
-				gradients: Vec::new(),
-				styles: [
-					style_gradient,
-					style_texture,
-					style_faded,
-					style_tinted,
-					style_solid,
-					style_complex,
-				],
-				xyz: (0.0, 0.0, 0.0),
-				rotate_xyz: (0.0, 0.0, 0.0),
-				frustum: ::ami::Frustum::new(::ami::Vec3::new(0.0, 0.0, 0.0),
-					100.0 /* TODO: Based on fog.0 + fog.1 */, 90.0,
-					2.0 * ((45.0 * ::std::f32::consts::PI / 180.0).tan() / ar).atan(),
-					0.0, 0.0
-				), // TODO: COPIED FROM renderer/mod.rs
-				ar,
-				projection,
-			};
+		use base::Display;
+		display.camera((0.0, 0.0, 0.0), (0.0, 0.0, 0.0));
 
-			display.camera((0.0, 0.0, 0.0), (0.0, 0.0, 0.0));
-
-			Ok(display)
-		} else {
-			Err("Couldn't find OpenGL!")
-		}
+		Ok(Box::new(display))
+	} else {
+		Err("Couldn't find OpenGL!")
 	}
+}
 
+impl base::Display for Display {
 	fn color(&mut self, color: (f32, f32, f32)) {
 		self.color = color;
 		self.context.color(color.0, color.1, color.2);
@@ -424,7 +431,6 @@ impl base::Display for Display {
 		});
 
 		Model(index)
-//		Model(self.renderer.model(vertices, indices))
 	}
 
 	fn fog(&mut self, fog: Option<(f32, f32)>) -> () {
@@ -442,7 +448,7 @@ impl base::Display for Display {
 		}
 	}
 
-	fn texture<G: AsRef<Graphic>>(&mut self, graphic: G) -> Texture {
+	fn texture(&mut self, graphic: &Graphic) -> Texture {
 		let (w, h, pixels) = graphic.as_ref().as_slice();
 
 		let t = self.context.new_texture();
@@ -450,7 +456,11 @@ impl base::Display for Display {
 		self.context.use_texture(&t);
 		self.context.set_texture(w, h, pixels);
 
-		Texture { t, w, h }
+		let a = self.textures.len();
+
+		self.textures.push(TextureData { t, w, h });
+
+		Texture(a)
 	}
 
 	fn gradient(&mut self, colors: &[f32]) -> Gradient {
@@ -489,9 +499,10 @@ impl base::Display for Display {
 		TexCoords(a)
 	}
 
-	fn set_texture(&mut self, texture: &mut Self::Texture, pixels: &[u32]) {
-		self.context.use_texture(&texture.t);
-		self.context.texture_update(texture.w, texture.h, pixels);
+	fn set_texture(&mut self, texture: &mut Texture, pixels: &[u32]) {
+		self.context.use_texture(&self.textures[texture.0].t);
+		self.context.texture_update(self.textures[texture.0].w,
+			self.textures[texture.0].h, pixels);
 	}
 
 	#[inline(always)]
@@ -593,7 +604,7 @@ impl base::Display for Display {
 			has_fog: fog,
 			alpha: None,
 			color: None,
-			texture: Some(texture.t),
+			texture: Some(self.textures[texture.0].t),
 			vertex_buffer: self.models[model.0].vertex_buffer,
 			vertice_count: self.models[model.0].vertex_count,
 			bounds: self.models[model.0].bounds,
@@ -634,7 +645,7 @@ impl base::Display for Display {
 			has_fog: fog,
 			alpha: Some(alpha),
 			color: None,
-			texture: Some(texture.t),
+			texture: Some(self.textures[texture.0].t),
 			vertex_buffer: self.models[model.0].vertex_buffer,
 			vertice_count: self.models[model.0].vertex_count,
 			bounds: self.models[model.0].bounds,
@@ -673,7 +684,7 @@ impl base::Display for Display {
 			has_fog: fog,
 			alpha: None,
 			color: Some(tint),
-			texture: Some(texture.t),
+			texture: Some(self.textures[texture.0].t),
 			vertex_buffer: self.models[model.0].vertex_buffer,
 			vertice_count: self.models[model.0].vertex_count,
 			bounds: self.models[model.0].bounds,
@@ -721,7 +732,7 @@ impl base::Display for Display {
 			has_fog: fog,
 			alpha: None,
 			color: None,
-			texture: Some(texture.t),
+			texture: Some(self.textures[texture.0].t),
 			vertex_buffer: self.models[model.0].vertex_buffer,
 			vertice_count: self.models[model.0].vertex_count,
 			bounds: self.models[model.0].bounds,
@@ -790,20 +801,6 @@ impl base::Display for Display {
 
 	fn wh(&self) -> (u32, u32) {
 		self.window.wh()
-	}
-}
-
-#[derive(Copy, Clone)]
-pub struct Texture {
-	t: asi_opengl::Texture,
-	w: u32,
-	h: u32,
-}
-
-impl base::Texture for Texture {
-	/// Get the width and height.
-	fn wh(&self) -> (u32, u32) {
-		(self.w, self.h)
 	}
 }
 

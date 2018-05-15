@@ -1,6 +1,5 @@
-# Cargo.toml -- Aldaron's Device Interface / GPU / OpenGL
-# Copyright (c) 2018  Jeron A. Lau <jeron.lau@plopgrizzly.com>
-# Licensed under the MIT LICENSE
+# "adi_gpu_opengl" crate - Licensed under the MIT LICENSE
+#  * Copyright (c) 2018  Jeron A. Lau <jeron.lau@plopgrizzly.com>
 #                             _        _
 #                            /@\——————/@\
 # .———  .                   |   o    o   |     .————      .            .
@@ -14,7 +13,7 @@
 
 [package]
 name = "adi_gpu_opengl"
-version = "0.2.0"
+version = "0.3.0"
 authors = [
 	"Jeron A. Lau <jeron.lau@plopgrizzly.com>"
 ]
@@ -36,6 +35,6 @@ exclude = [
 ]
 
 [dependencies]
-adi_gpu_base = { path = "../adi_gpu_base" } # "^0.4"
-asi_opengl = { path = "../asi_opengl" } # "^0.1"
-ami = { path = "../ami" } # "^0.6"
+adi_gpu_base = "^0.5"
+asi_opengl = "^0.2"
+ami = "^0.7"
