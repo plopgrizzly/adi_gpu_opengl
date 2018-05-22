@@ -102,8 +102,8 @@ struct ShapeData {
 	vertex_buffer: u32,
 	vertice_count: u32,
 	bounds: [(f32, f32); 3], // xMinMax, yMinMax, zMinMax
-	center: ::ami::Vec3<f32>,
-	position: ::ami::Vec3<f32>,
+	center: ::ami::Vec3,
+	position: ::ami::Vec3,
 }
 
 struct ModelData {
@@ -111,7 +111,7 @@ struct ModelData {
 	// TODO alot could be in base as duplicate
 	vertex_count: u32,
 	bounds: [(f32, f32); 3], // xMinMax, yMinMax, zMinMax
-	center: ::ami::Vec3<f32>,
+	center: ::ami::Vec3,
 }
 
 struct TexcoordsData {
@@ -131,12 +131,11 @@ struct TextureData {
 }
 
 impl ::ami::Pos for ShapeData {
-	fn posf(&self) -> ::ami::Vec3<f32> {
-		self.position
-	}
-
-	fn posi(&self) -> ::ami::Vec3<i32> {
-		self.position.into()
+	fn posf(&self) -> ::ami::BBox {
+		::ami::BBox::new(
+			ami::Vec3::new(self.bounds[0].0, self.bounds[1].0, self.bounds[2].0),
+			ami::Vec3::new(self.bounds[0].1, self.bounds[1].1, self.bounds[2].1)
+		)
 	}
 }
 
@@ -297,7 +296,7 @@ impl base::Display for Display {
 		// TODO: This is copied pretty much from adi_gpu_vulkan.  Move
 		// to the base.
 
-		let matrix = ::Mat4::new()
+		let matrix = IDENTITY
 			.rotate(self.rotate_xyz.0, self.rotate_xyz.1,
 				self.rotate_xyz.2)
 			.translate(self.xyz.0, self.xyz.1, self.xyz.2);
@@ -358,7 +357,7 @@ impl base::Display for Display {
 		// Write To Camera Uniforms.  TODO: only before use (not here).
 		// TODO this assignment copied from vulkan implementation.  Put
 		// in the base library.
-		let cam = (::Mat4::new()
+		let cam = (IDENTITY
 			.translate(-self.xyz.0, -self.xyz.1, -self.xyz.2)
 			.rotate(-self.rotate_xyz.0, -self.rotate_xyz.1,
 				-self.rotate_xyz.2) * self.projection).0;
