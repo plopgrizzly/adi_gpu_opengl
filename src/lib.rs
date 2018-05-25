@@ -101,17 +101,17 @@ struct ShapeData {
 	texture: Option<asi_opengl::Texture>,
 	vertex_buffer: u32,
 	vertice_count: u32,
-	bounds: [(f32, f32); 3], // xMinMax, yMinMax, zMinMax
-	center: ::ami::Vec3,
-	position: ::ami::Vec3,
+	bbox: BBox,
+	model: usize,
+	fans: Vec<(u32, u32)>,
 }
 
 struct ModelData {
 	vertex_buffer: u32,
 	// TODO alot could be in base as duplicate
 	vertex_count: u32,
-	bounds: [(f32, f32); 3], // xMinMax, yMinMax, zMinMax
-	center: ::ami::Vec3,
+	points: Vec<f32>,
+	fans: Vec<(u32, u32)>,
 }
 
 struct TexcoordsData {
@@ -130,12 +130,9 @@ struct TextureData {
 	h: u32,
 }
 
-impl ::ami::Pos for ShapeData {
-	fn posf(&self) -> ::ami::BBox {
-		::ami::BBox::new(
-			ami::Vec3::new(self.bounds[0].0, self.bounds[1].0, self.bounds[2].0),
-			ami::Vec3::new(self.bounds[0].1, self.bounds[1].1, self.bounds[2].1)
-		)
+impl ::ami::Collider for ShapeData {
+	fn bbox(&self) -> ::ami::BBox {
+		self.bbox
 	}
 }
 
@@ -157,7 +154,7 @@ pub struct Display {
 	xyz: (f32,f32,f32),
 	rotate_xyz: (f32,f32,f32),
 	frustum: ::ami::Frustum,
-	ar: f32,
+	ar: f64,
 	projection: ::ami::Mat4,
 }
 
@@ -231,7 +228,7 @@ pub fn new<G: AsRef<Graphic>>(title: &str, icon: G)
 			true/*gradient*/);
 
 		let wh = window.wh();
-		let ar = wh.0 as f32 / wh.1 as f32;
+		let ar = wh.0 as f64 / wh.1 as f64;
 
 		let projection = base::projection(ar, 90.0);
 
@@ -263,7 +260,7 @@ pub fn new<G: AsRef<Graphic>>(title: &str, icon: G)
 			rotate_xyz: (0.0, 0.0, 0.0),
 			frustum: ::ami::Frustum::new(::ami::Vec3::new(0.0, 0.0, 0.0),
 				100.0 /* TODO: Based on fog.0 + fog.1 */, 90.0,
-				2.0 * ((45.0 * ::std::f32::consts::PI / 180.0).tan() / ar).atan(),
+				(2.0 * ((45.0 * ::std::f64::consts::PI / 180.0).tan() / ar).atan()) as f32,
 				0.0, 0.0
 			), // TODO: COPIED FROM renderer/mod.rs
 			ar,
@@ -360,7 +357,8 @@ impl base::Display for Display {
 		let cam = (IDENTITY
 			.translate(-self.xyz.0, -self.xyz.1, -self.xyz.2)
 			.rotate(-self.rotate_xyz.0, -self.rotate_xyz.1,
-				-self.rotate_xyz.2) * self.projection).0;
+				-self.rotate_xyz.2) * self.projection)
+			.to_f32_array();
 
 		for i in (&self.styles).iter() {
 			self.context.use_program(i.shader);
@@ -368,7 +366,7 @@ impl base::Display for Display {
 		}
 	}
 
-	fn model(&mut self, vertices: &[f32]) -> Model {
+	fn model(&mut self, vertices: &[f32], fans: Vec<(u32, u32)>) -> Model {
 		// TODO most is duplicate from other implementation.
 		let index = self.models.len();
 
@@ -378,55 +376,11 @@ impl base::Display for Display {
 		self.context.bind_buffer(vertex_buffer);
 		self.context.set_buffer(vertices);
 
-		let mut xtot = vertices[0];
-		let mut ytot = vertices[1];
-		let mut ztot = vertices[2];
-		let mut xmin = vertices[0];
-		let mut ymin = vertices[1];
-		let mut zmin = vertices[2];
-		let mut xmax = vertices[0];
-		let mut ymax = vertices[1];
-		let mut zmax = vertices[2];
-
-		for i in 4..vertices.len() {
-			match i % 4 {
-				0 => {
-					let x = vertices[i];
-					xtot += x;
-					if x < xmin {
-						xmin = x;
-					} else if x > xmax {
-						xmax = x;
-					}
-				},
-				1 => {
-					let y = vertices[i];
-					ytot += y;
-					if y < ymin {
-						ymin = y;
-					} else if y > ymax {
-						ymax = y;
-					}
-				},
-				2 => {
-					let z = vertices[i];
-					ztot += z;
-					if z < zmin {
-						zmin = z;
-					} else if z > zmax {
-						zmax = z;
-					}
-				},
-				_ => { },
-			}
-		}
-
-		let n = (vertices.len() / 4) as f32;
+		let points = vertices.to_vec();
 
 		self.models.push(ModelData {
 			vertex_buffer, vertex_count: vertices.len() as u32 / 4,
-			bounds: [(xmin, xmax), (ymin, ymax), (zmin, zmax)],
-			center: ::ami::Vec3::new(xtot / n, ytot / n, ztot / n),
+			points, fans
 		});
 
 		Model(index)
@@ -509,6 +463,10 @@ impl base::Display for Display {
 		color: [f32; 4], blending: bool, fog: bool, camera: bool)
 		-> Shape
 	{
+		let bbox = base::vertices_to_bbox(
+			self.models[model.0].points.as_slice(), transform
+		);
+
 		let shape = ShapeData {
 			style: STYLE_SOLID,
 			num_buffers: 0,
@@ -522,10 +480,10 @@ impl base::Display for Display {
 			texture: None,
 			vertex_buffer: self.models[model.0].vertex_buffer,
 			vertice_count: self.models[model.0].vertex_count,
-			bounds: self.models[model.0].bounds,
-			center: self.models[model.0].center,
-			position: transform * self.models[model.0].center,
+			bbox,
+			model: model.0,
 			transform, // Transformation matrix.
+			fans: self.models[model.0].fans.clone(),
 		};
 
 		base::new_shape(if !camera && !fog {
@@ -550,6 +508,10 @@ impl base::Display for Display {
 			panic!("TexCoord length doesn't match gradient length");
 		}
 
+		let bbox = base::vertices_to_bbox(
+			self.models[model.0].points.as_slice(), transform
+		);
+
 		let shape = ShapeData {
 			style: STYLE_GRADIENT,
 			num_buffers: 1,
@@ -563,13 +525,11 @@ impl base::Display for Display {
 			texture: None,
 			vertex_buffer: self.models[model.0].vertex_buffer,
 			vertice_count: self.models[model.0].vertex_count,
-			bounds: self.models[model.0].bounds,
-			center: self.models[model.0].center,
-			position: transform * self.models[model.0].center,
+			bbox,
+			model: model.0,
 			transform, // Transformation matrix.
+			fans: self.models[model.0].fans.clone(),
 		};
-
-		println!("JUST SET: {}", shape.vertex_buffer);
 
 		base::new_shape(if !camera && !fog {
 			self.gui_vec.push(shape);
@@ -593,6 +553,10 @@ impl base::Display for Display {
 			panic!("TexCoord length doesn't match vertex length");
 		}
 
+		let bbox = base::vertices_to_bbox(
+			self.models[model.0].points.as_slice(), transform
+		);
+
 		let shape = ShapeData {
 			style: STYLE_TEXTURE,
 			num_buffers: 1,
@@ -606,10 +570,10 @@ impl base::Display for Display {
 			texture: Some(self.textures[texture.0].t),
 			vertex_buffer: self.models[model.0].vertex_buffer,
 			vertice_count: self.models[model.0].vertex_count,
-			bounds: self.models[model.0].bounds,
-			center: self.models[model.0].center,
-			position: transform * self.models[model.0].center,
+			bbox,
+			model: model.0,
 			transform, // Transformation matrix.
+			fans: self.models[model.0].fans.clone(),
 		};
 
 		base::new_shape(if !camera && !fog {
@@ -634,6 +598,10 @@ impl base::Display for Display {
 			panic!("TexCoord length doesn't match vertex length");
 		}
 
+		let bbox = base::vertices_to_bbox(
+			self.models[model.0].points.as_slice(), transform
+		);
+
 		let shape = ShapeData {
 			style: STYLE_FADED,
 			num_buffers: 1,
@@ -647,10 +615,10 @@ impl base::Display for Display {
 			texture: Some(self.textures[texture.0].t),
 			vertex_buffer: self.models[model.0].vertex_buffer,
 			vertice_count: self.models[model.0].vertex_count,
-			bounds: self.models[model.0].bounds,
-			center: self.models[model.0].center,
-			position: transform * self.models[model.0].center,
+			bbox,
+			model: model.0,
 			transform, // Transformation matrix.
+			fans: self.models[model.0].fans.clone(),
 		};
 
 		base::new_shape(if !camera && !fog {
@@ -673,6 +641,10 @@ impl base::Display for Display {
 			panic!("TexCoord length doesn't match vertex length");
 		}
 
+		let bbox = base::vertices_to_bbox(
+			self.models[model.0].points.as_slice(), transform
+		);
+
 		let shape = ShapeData {
 			style: STYLE_TINTED,
 			num_buffers: 1,
@@ -686,10 +658,10 @@ impl base::Display for Display {
 			texture: Some(self.textures[texture.0].t),
 			vertex_buffer: self.models[model.0].vertex_buffer,
 			vertice_count: self.models[model.0].vertex_count,
-			bounds: self.models[model.0].bounds,
-			center: self.models[model.0].center,
-			position: transform * self.models[model.0].center,
+			bbox,
+			model: model.0,
 			transform, // Transformation matrix.
+			fans: self.models[model.0].fans.clone(),
 		};
 
 		base::new_shape(if !camera && !fog {
@@ -721,6 +693,10 @@ impl base::Display for Display {
 			panic!("TexCoord length doesn't match gradient length");
 		}
 
+		let bbox = base::vertices_to_bbox(
+			self.models[model.0].points.as_slice(), transform
+		);
+
 		let shape = ShapeData {
 			style: STYLE_COMPLEX,
 			num_buffers: 2,
@@ -734,10 +710,10 @@ impl base::Display for Display {
 			texture: Some(self.textures[texture.0].t),
 			vertex_buffer: self.models[model.0].vertex_buffer,
 			vertice_count: self.models[model.0].vertex_count,
-			bounds: self.models[model.0].bounds,
-			center: self.models[model.0].center,
-			position: transform * self.models[model.0].center,
+			bbox,
+			model: model.0,
 			transform, // Transformation matrix.
+			fans: self.models[model.0].fans.clone(),
 		};
 
 		base::new_shape(if !camera && !fog {
@@ -754,16 +730,24 @@ impl base::Display for Display {
 		// TODO: put in base, some is copy from vulkan implementation.
 		match base::get_shape(shape) {
 			ShapeHandle::Opaque(ref mut x) => {
-				self.opaque_octree[*x].position = transform *
-					self.opaque_octree[*x].center;
+				let model = self.opaque_octree[*x].model;
+				let bbox = base::vertices_to_bbox(
+					self.models[model].points.as_slice(),
+					transform);
+
+				self.opaque_octree[*x].bbox = bbox;
 				let shape = self.opaque_octree.remove(*x);
 				*x = self.opaque_octree.add(shape);
 
 				self.opaque_octree[*x].transform = transform;
 			},
 			ShapeHandle::Alpha(ref mut x) => {
-				self.alpha_octree[*x].position = transform *
-					self.alpha_octree[*x].center;
+				let model = self.alpha_octree[*x].model;
+				let bbox = base::vertices_to_bbox(
+					self.models[model].points.as_slice(),
+					transform);
+
+				self.alpha_octree[*x].bbox = bbox;
 				let shape = self.alpha_octree.remove(*x);
 				*x = self.alpha_octree.add(shape);
 
@@ -772,11 +756,27 @@ impl base::Display for Display {
 			ShapeHandle::Gui(x) => {
 				let x = x as usize; // for indexing
 
-				self.gui_vec[x].position = transform *
-					self.gui_vec[x].center;
+				let model = self.gui_vec[x].model;
+				let bbox = base::vertices_to_bbox(
+					self.models[model].points.as_slice(),
+					transform);
+
+				self.gui_vec[x].bbox = bbox;
 
 				self.gui_vec[x].transform = transform;
 			},
+		}
+	}
+
+	fn collision(&self, shape: &Shape, force: &mut Vec3) -> Option<u32> {
+		match base::get_shape(shape) {
+			ShapeHandle::Opaque(x) => {
+				self.opaque_octree.bounce_test(x, force)
+			},
+			ShapeHandle::Alpha(x) => {
+				self.alpha_octree.bounce_test(x, force)
+			},
+			_ => panic!("No gui collision detection!")
 		}
 	}
 
@@ -784,12 +784,12 @@ impl base::Display for Display {
 		let xyz = self.xyz;
 		let rotate_xyz = self.rotate_xyz;
 
-		self.ar = wh.0 as f32 / wh.1 as f32;
+		self.ar = wh.0 as f64 / wh.1 as f64;
 		self.frustum = ::ami::Frustum::new(
 			self.frustum.center,
 			self.frustum.radius,
-			90.0, 2.0 * ((45.0 * ::std::f32::consts::PI / 180.0)
-				.tan() / self.ar).atan(),
+			90.0, (2.0 * ((45.0 * ::std::f64::consts::PI / 180.0)
+				.tan() / self.ar).atan()) as f32,
 			self.frustum.xrot, self.frustum.yrot);
 
 		self.context.viewport(wh.0, wh.1);
@@ -805,7 +805,7 @@ impl base::Display for Display {
 
 fn draw_shape(context: &OpenGL, style: &Style, shape: &ShapeData) {
 	context.use_program(style.shader);
-	context.set_mat4(style.matrix_uniform, &shape.transform.0);
+	context.set_mat4(style.matrix_uniform, &shape.transform.to_f32_array());
 
 	if style.texpos.0 != -1 {
 		// Bind texture coordinates buffer
@@ -839,5 +839,8 @@ fn draw_shape(context: &OpenGL, style: &Style, shape: &ShapeData) {
 
 	context.bind_buffer(shape.vertex_buffer);
 	context.vertex_attrib(&style.position);
-	context.draw_arrays(shape.vertice_count);
+
+	for i in shape.fans.iter() {
+		context.draw_arrays(i.0, i.1);
+	}
 }
