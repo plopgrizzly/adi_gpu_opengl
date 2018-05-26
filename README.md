@@ -2,7 +2,8 @@
 OpenGL implementation for adi_gpu
 
 [Cargo](https://crates.io/crates/adi_gpu_opengl) /
-[Documentation](https://docs.rs/adi_gpu_opengl)
+[Documentation](https://docs.rs/adi_gpu_opengl) /
+[Change Log](http://plopgrizzly.com/adi_gpu_opengl/changelog.html)
 
 # Contributing
 If you'd like to help implement functions for unsupported platforms, fix bugs,

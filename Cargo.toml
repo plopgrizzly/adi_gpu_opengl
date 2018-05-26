@@ -13,7 +13,7 @@
 
 [package]
 name = "adi_gpu_opengl"
-version = "0.3.0"
+version = "0.4.0"
 authors = [
 	"Jeron A. Lau <jeron.lau@plopgrizzly.com>"
 ]
@@ -23,7 +23,7 @@ documentation = "https://docs.rs/adi_gpu_opengl"
 homepage = "http://plopgrizzly.com/adi_gpu_opengl"
 repository = "https://github.com/plopgrizzly/adi_gpu_opengl"
 
-readme = "README.md"
+readme = "readme.md"
 description = "OpenGL implementation for adi_gpu"
 keywords = [ "opengl", "graphics", "gui", "hardware", "rendering" ]
 categories = ["gui", "game-engines", "hardware-support", "multimedia::video",
@@ -35,6 +35,6 @@ exclude = [
 ]
 
 [dependencies]
-adi_gpu_base = { path = "../adi_gpu_base" } # "^0.5"
+adi_gpu_base = "^0.6"
 asi_opengl = "^0.3"
 ami = "^0.8"
