@@ -17,7 +17,10 @@ pub use base::Texture;
 
 use ami::*;
 use adi_gpu_base as base;
-use asi_opengl::{ OpenGL, OpenGLBuilder, VertexData, Program, Buffer };
+use asi_opengl::{
+	OpenGL, OpenGLBuilder, VertexData, Program, Buffer, UniformData,
+	Feature, Topology,
+};
 use adi_gpu_base::{ Graphic, WindowConnection, ShapeHandle };
 
 const SHADER_SOLID_FRAG: &'static [u8] = include_bytes!("shaders/solid-frag.glsl");
@@ -40,15 +43,14 @@ const STYLE_COMPLEX: usize = 5;
 
 struct Style {
 	shader: Program,
-	matrix_uniform: i32,
-	has_camera: i32,
-	camera_uniform: i32,
-	has_fog: i32,
-	fog: i32,
-	range: i32,
-//	texture: i32,
-	alpha: i32,
-	color: i32,
+	matrix_uniform: UniformData,
+	has_camera: UniformData,
+	camera_uniform: UniformData,
+	has_fog: UniformData,
+	fog: UniformData,
+	range: UniformData,
+	alpha: UniformData,
+	color: UniformData,
 	position: VertexData,
 	texpos: VertexData,
 	acolor: VertexData,
@@ -56,23 +58,19 @@ struct Style {
 
 impl Style {
 	// Create a new style.
-	fn new(context: &OpenGL, vert: &[u8], frag: &[u8], a: bool, c: bool)
-		-> Style
-	{
+	fn new(context: &OpenGL, vert: &[u8], frag: &[u8]) -> Style {
 		let shader = Program::new(context, vert, frag);
-		let matrix_uniform = context.uniform(&shader, b"models_tfm\0");
-		let has_camera = context.uniform(&shader, b"has_camera\0");
-		let camera_uniform = context.uniform(&shader, b"matrix\0");
-		let has_fog = context.uniform(&shader, b"has_fog\0");
-		let fog = context.uniform(&shader, b"fog\0");
-		let range = context.uniform(&shader, b"range\0");
-		let alpha = if a { context.uniform(&shader, b"alpha\0") }
-			else { -1 };
-		let color = if c { context.uniform(&shader, b"color\0") }
-			else { -1 };
-		let position = VertexData::new(context, &shader, b"position\0");
-		let texpos = VertexData::new(context, &shader, b"texpos\0");
-		let acolor = VertexData::new(context, &shader, b"acolor\0");
+		let matrix_uniform = shader.uniform(b"models_tfm\0");
+		let has_camera = shader.uniform(b"has_camera\0");
+		let camera_uniform = shader.uniform(b"matrix\0");
+		let has_fog = shader.uniform(b"has_fog\0");
+		let fog = shader.uniform(b"fog\0");
+		let range = shader.uniform(b"range\0");
+		let alpha = shader.uniform(b"alpha\0");
+		let color = shader.uniform(b"color\0");
+		let position = shader.vertex_data(b"position\0");
+		let texpos = shader.vertex_data(b"texpos\0");
+		let acolor = shader.vertex_data(b"acolor\0");
 
 		Style {
 			shader, matrix_uniform, has_camera, camera_uniform, fog,
@@ -185,30 +183,24 @@ pub fn new<G: AsRef<Graphic>>(title: &str, icon: G)
 		});
 
 		// Set the settings.
-		context.disable(0x0BD0 /*DITHER*/);
-		context.enable(0x0B44/*CULL_FACE*/);
-		context.enable(0x0BE2/*BLEND*/);
+		context.disable(Feature::Dither);
+		context.enable(Feature::CullFace);
+		context.enable(Feature::Blend);
 		context.blend();
 
 		// Load shaders
 		let style_solid = Style::new(&context,
-			SHADER_SOLID_VERT, SHADER_SOLID_FRAG,
-			false /*alpha*/, true /*color*/);
+			SHADER_SOLID_VERT, SHADER_SOLID_FRAG);
 		let style_gradient = Style::new(&context,
-			SHADER_GRADIENT_VERT, SHADER_GRADIENT_FRAG,
-			false /*alpha*/, false /*color*/);
+			SHADER_GRADIENT_VERT, SHADER_GRADIENT_FRAG);
 		let style_texture = Style::new(&context,
-			SHADER_TEX_VERT, SHADER_TEX_FRAG,
-			false /*alpha*/, false /*color*/);
+			SHADER_TEX_VERT, SHADER_TEX_FRAG);
 		let style_faded = Style::new(&context,
-			SHADER_FADED_VERT, SHADER_TEX_FRAG,
-			true /*alpha*/, false /*color*/);
+			SHADER_FADED_VERT, SHADER_TEX_FRAG);
 		let style_tinted = Style::new(&context,
-			SHADER_TEX_VERT, SHADER_TINTED_FRAG,
-			false /*alpha*/, true /*color*/);
+			SHADER_TEX_VERT, SHADER_TINTED_FRAG);
 		let style_complex = Style::new(&context,
-			SHADER_COMPLEX_VERT, SHADER_COMPLEX_FRAG,
-			false/*alpha*/,false/*color*/);
+			SHADER_COMPLEX_VERT, SHADER_COMPLEX_FRAG);
 
 		let wh = window.wh();
 		let ar = wh.0 as f64 / wh.1 as f64;
@@ -282,41 +274,36 @@ impl base::Display for Display {
 
 		// Opaque & Alpha Shapes need a camera.
 		for i in (&self.styles).iter() {
-			self.context.use_program(&i.shader);
-			self.context.set_int1(i.has_camera, 1);
+			i.has_camera.set_int1(1);
 		}
 
 		// Enable for 3D depth testing
-		self.context.enable(0x0B71/*GL_DEPTH_TEST*/);
+		self.context.enable(Feature::DepthTest);
 
 		self.opaque_octree.nearest(&mut self.opaque_sorted, frustum);
 		for id in self.opaque_sorted.iter() {
 			let shape = &self.opaque_octree[*id];
 
-			draw_shape(&self.context, &self.styles[shape.style],
-				shape);
+			draw_shape(&self.styles[shape.style], shape);
 		}
 
 		self.alpha_octree.farthest(&mut self.alpha_sorted, frustum);
 		for id in self.alpha_sorted.iter() {
 			let shape = &self.alpha_octree[*id];
 
-			draw_shape(&self.context, &self.styles[shape.style],
-				shape);
+			draw_shape(&self.styles[shape.style], shape);
 		}
 
 		// Disable Depth Testing for GUI
-		self.context.disable(0x0B71/*GL_DEPTH_TEST*/);
+		self.context.disable(Feature::DepthTest);
 
 		// Gui Elements don't want a camera.
 		for i in (&self.styles).iter() {
-			self.context.use_program(&i.shader);
-			self.context.set_int1(i.has_camera, 0);
+			i.has_camera.set_int1(0);
 		}
 
 		for shape in self.gui_vec.iter() {
-			draw_shape(&self.context, &self.styles[shape.style],
-				shape);
+			draw_shape(&self.styles[shape.style], shape);
 		}
 
 		// end todo
@@ -341,8 +328,7 @@ impl base::Display for Display {
 			.to_f32_array();
 
 		for i in (&self.styles).iter() {
-			self.context.use_program(&i.shader);
-			self.context.set_mat4(i.camera_uniform, &cam);
+			i.camera_uniform.set_mat4(&cam);
 		}
 	}
 
@@ -353,8 +339,7 @@ impl base::Display for Display {
 		let buffer = Buffer::new(&self.context);
 
 		let vertex_buffer = buffer;
-		self.context.bind_buffer(&vertex_buffer);
-		self.context.set_buffer(vertices);
+		vertex_buffer.set(vertices);
 
 		let points = vertices.to_vec();
 
@@ -375,19 +360,17 @@ impl base::Display for Display {
 		};
 
 		for i in (&self.styles).iter() {
-			self.context.use_program(&i.shader);
-			self.context.set_vec4(i.fog, &fogc);
-			self.context.set_vec2(i.range, &fogr);
+			i.fog.set_vec4(&fogc);
+			i.range.set_vec2(&fogr);
 		}
 	}
 
 	fn texture(&mut self, graphic: &Graphic) -> Texture {
 		let (w, h, pixels) = graphic.as_ref().as_slice();
 
-		let t = self.context.new_texture();
+		let t = self.context.texture();
 
-		self.context.use_texture(&t);
-		self.context.set_texture(w, h, pixels);
+		t.set(w, h, pixels);
 
 		let a = self.textures.len();
 
@@ -400,9 +383,7 @@ impl base::Display for Display {
 		// TODO: A lot of duplication here from adi_gpu_vulkan.  Put in
 		// base.
 		let vertex_buffer = Buffer::new(&self.context);
-
-		self.context.bind_buffer(&vertex_buffer);
-		self.context.set_buffer(colors);
+		vertex_buffer.set(colors);
 
 		let a = self.gradients.len();
 
@@ -418,9 +399,7 @@ impl base::Display for Display {
 		// TODO: A lot of duplication here from adi_gpu_vulkan.  Put in
 		// base.
 		let vertex_buffer = Buffer::new(&self.context);
-
-		self.context.bind_buffer(&vertex_buffer);
-		self.context.set_buffer(texcoords);
+		vertex_buffer.set(texcoords);
 
 		let a = self.texcoords.len();
 
@@ -433,8 +412,7 @@ impl base::Display for Display {
 	}
 
 	fn set_texture(&mut self, texture: &mut Texture, pixels: &[u32]) {
-		self.context.use_texture(&self.textures[texture.0].t);
-		self.context.texture_update(self.textures[texture.0].w,
+		self.textures[texture.0].t.update(self.textures[texture.0].w,
 			self.textures[texture.0].h, pixels);
 	}
 
@@ -539,7 +517,7 @@ impl base::Display for Display {
 			has_fog: fog,
 			alpha: None,
 			color: None,
-			texture: Some(self.textures[texture.0].t),
+			texture: Some(self.textures[texture.0].t.clone()),
 			vertex_buffer: self.models[model.0].vertex_buffer.clone(),
 			bbox,
 			model: model.0,
@@ -582,7 +560,7 @@ impl base::Display for Display {
 			has_fog: fog,
 			alpha: Some(alpha),
 			color: None,
-			texture: Some(self.textures[texture.0].t),
+			texture: Some(self.textures[texture.0].t.clone()),
 			vertex_buffer: self.models[model.0].vertex_buffer.clone(),
 			bbox,
 			model: model.0,
@@ -623,7 +601,7 @@ impl base::Display for Display {
 			has_fog: fog,
 			alpha: None,
 			color: Some(tint),
-			texture: Some(self.textures[texture.0].t),
+			texture: Some(self.textures[texture.0].t.clone()),
 			vertex_buffer: self.models[model.0].vertex_buffer.clone(),
 			bbox,
 			model: model.0,
@@ -673,7 +651,7 @@ impl base::Display for Display {
 			has_fog: fog,
 			alpha: None,
 			color: None,
-			texture: Some(self.textures[texture.0].t),
+			texture: Some(self.textures[texture.0].t.clone()),
 			vertex_buffer: self.models[model.0].vertex_buffer.clone(),
 			bbox,
 			model: model.0,
@@ -768,40 +746,39 @@ impl base::Display for Display {
 	}
 }
 
-fn draw_shape(context: &OpenGL, style: &Style, shape: &ShapeData) {
-	context.use_program(&style.shader);
-	context.set_mat4(style.matrix_uniform, &shape.transform.to_f32_array());
+fn draw_shape(style: &Style, shape: &ShapeData) {
+	style.matrix_uniform.set_mat4(&shape.transform.to_f32_array());
 
 	if !style.texpos.is_none() {
 		// Set texpos for the program from the texpos buffer.
-		style.texpos.set(context, shape.buffers[0].as_ref().unwrap());
+		style.texpos.set(shape.buffers[0].as_ref().unwrap());
 		// Bind the texture
-		context.use_texture(&shape.texture.unwrap());
+		shape.texture.as_ref().unwrap().bind();
 	}
 
 	if !style.acolor.is_none() {
 		// Set colors for the program from the color buffer.
 		// TODO: probably shouldn't be same buffer as texpos.
-		style.acolor.set(context, shape.buffers[0].as_ref().unwrap());
+		style.acolor.set(shape.buffers[0].as_ref().unwrap());
 	}
 
-	if style.alpha != -1 {
-		context.set_vec1(style.alpha, shape.alpha.unwrap());
+	if !style.alpha.is_none() {
+		style.alpha.set_vec1(shape.alpha.unwrap());
 	}
 
-	if style.color != -1 {
-		context.set_vec4(style.color, &shape.color.unwrap());
+	if !style.color.is_none() {
+		style.color.set_vec4(&shape.color.unwrap());
 	}
 
 	if shape.has_fog {
-		context.set_int1(style.has_fog, 1);
+		style.has_fog.set_int1(1);
 	} else {
-		context.set_int1(style.has_fog, 0);
+		style.has_fog.set_int1(0);
 	}
 
 	// Set vertices for the program from the vertex buffer.
-	style.position.set(context, &shape.vertex_buffer);
+	style.position.set(&shape.vertex_buffer);
 	for i in shape.fans.iter() {
-		context.draw_arrays(i.0, i.1);
+		style.shader.draw_arrays(Topology::TriangleFan, i.0..i.1);
 	}
 }

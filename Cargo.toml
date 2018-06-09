@@ -13,7 +13,7 @@
 
 [package]
 name = "adi_gpu_opengl"
-version = "0.4.0"
+version = "0.4.1"
 authors = [
 	"Jeron A. Lau <jeron.lau@plopgrizzly.com>"
 ]
@@ -36,5 +36,5 @@ exclude = [
 
 [dependencies]
 adi_gpu_base = "^0.6"
-asi_opengl = "^0.3"
+asi_opengl = "^0.4"
 ami = "^0.8"
