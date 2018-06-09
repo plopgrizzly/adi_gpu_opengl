@@ -17,7 +17,7 @@ pub use base::Texture;
 
 use ami::*;
 use adi_gpu_base as base;
-use asi_opengl::{ OpenGL, OpenGLBuilder };
+use asi_opengl::{ OpenGL, OpenGLBuilder, VertexData, Program, Buffer };
 use adi_gpu_base::{ Graphic, WindowConnection, ShapeHandle };
 
 const SHADER_SOLID_FRAG: &'static [u8] = include_bytes!("shaders/solid-frag.glsl");
@@ -39,7 +39,7 @@ const STYLE_SOLID: usize = 4;
 const STYLE_COMPLEX: usize = 5;
 
 struct Style {
-	shader: u32,
+	shader: Program,
 	matrix_uniform: i32,
 	has_camera: i32,
 	camera_uniform: i32,
@@ -49,38 +49,30 @@ struct Style {
 //	texture: i32,
 	alpha: i32,
 	color: i32,
-	position: asi_opengl::Attribute,
-	texpos: asi_opengl::Attribute,
-	acolor: asi_opengl::Attribute,
+	position: VertexData,
+	texpos: VertexData,
+	acolor: VertexData,
 }
 
 impl Style {
 	// Create a new style.
-	fn new(context: &OpenGL, vert: &[u8], frag: &[u8], t: bool, a: bool,
-		c: bool, g: bool) -> Style
+	fn new(context: &OpenGL, vert: &[u8], frag: &[u8], a: bool, c: bool)
+		-> Style
 	{
-		let shader = context.shader(vert, frag);
-		let matrix_uniform = context.uniform(shader, b"models_tfm\0");
-		let has_camera = context.uniform(shader, b"has_camera\0");
-		let camera_uniform = context.uniform(shader, b"matrix\0");
-		let has_fog = context.uniform(shader, b"has_fog\0");
-		let fog = context.uniform(shader, b"fog\0");
-		let range = context.uniform(shader, b"range\0");
-		let alpha = if a { context.uniform(shader, b"alpha\0") }
+		let shader = Program::new(context, vert, frag);
+		let matrix_uniform = context.uniform(&shader, b"models_tfm\0");
+		let has_camera = context.uniform(&shader, b"has_camera\0");
+		let camera_uniform = context.uniform(&shader, b"matrix\0");
+		let has_fog = context.uniform(&shader, b"has_fog\0");
+		let fog = context.uniform(&shader, b"fog\0");
+		let range = context.uniform(&shader, b"range\0");
+		let alpha = if a { context.uniform(&shader, b"alpha\0") }
 			else { -1 };
-		let color = if c { context.uniform(shader, b"color\0") }
+		let color = if c { context.uniform(&shader, b"color\0") }
 			else { -1 };
-		let position = context.attribute(shader, b"position\0");
-		let texpos = if t {
-			context.attribute(shader, b"texpos\0")
-		} else {
-			asi_opengl::Attribute(-1)
-		};
-		let acolor = if g {
-			context.attribute(shader, b"acolor\0")
-		} else {
-			asi_opengl::Attribute(-1)
-		};
+		let position = VertexData::new(context, &shader, b"position\0");
+		let texpos = VertexData::new(context, &shader, b"texpos\0");
+		let acolor = VertexData::new(context, &shader, b"acolor\0");
 
 		Style {
 			shader, matrix_uniform, has_camera, camera_uniform, fog,
@@ -89,25 +81,22 @@ impl Style {
 	}
 }
 
-#[derive(Clone)]
 struct ShapeData {
 	style: usize,
-	num_buffers: usize,
-	buffers: [u32; 2],
+	buffers: [Option<Buffer>; 2],
 	has_fog: bool,
 	alpha: Option<f32>,
 	color: Option<[f32; 4]>,
 	transform: ami::Mat4, // Transformation matrix.
 	texture: Option<asi_opengl::Texture>,
-	vertex_buffer: u32,
-	vertice_count: u32,
+	vertex_buffer: Buffer,
 	bbox: BBox,
 	model: usize,
 	fans: Vec<(u32, u32)>,
 }
 
 struct ModelData {
-	vertex_buffer: u32,
+	vertex_buffer: Buffer,
 	// TODO alot could be in base as duplicate
 	vertex_count: u32,
 	points: Vec<f32>,
@@ -115,12 +104,12 @@ struct ModelData {
 }
 
 struct TexcoordsData {
-	vertex_buffer: u32,
+	vertex_buffer: Buffer,
 	vertex_count: u32,
 }
 
 struct GradientData {
-	vertex_buffer: u32,
+	vertex_buffer: Buffer,
 	vertex_count: u32,
 }
 
@@ -204,28 +193,22 @@ pub fn new<G: AsRef<Graphic>>(title: &str, icon: G)
 		// Load shaders
 		let style_solid = Style::new(&context,
 			SHADER_SOLID_VERT, SHADER_SOLID_FRAG,
-			false/*texture*/,false/*alpha*/,true/*color*/,
-			false/*gradient*/);
+			false /*alpha*/, true /*color*/);
 		let style_gradient = Style::new(&context,
 			SHADER_GRADIENT_VERT, SHADER_GRADIENT_FRAG,
-			false/*texture*/,false/*alpha*/,false/*color*/,
-			true/*gradient*/);
+			false /*alpha*/, false /*color*/);
 		let style_texture = Style::new(&context,
 			SHADER_TEX_VERT, SHADER_TEX_FRAG,
-			true/*texture*/,false/*alpha*/,false/*color*/,
-			false/*gradient*/);
+			false /*alpha*/, false /*color*/);
 		let style_faded = Style::new(&context,
 			SHADER_FADED_VERT, SHADER_TEX_FRAG,
-			true/*texture*/,true/*alpha*/,false/*color*/,
-			false/*gradient*/);
+			true /*alpha*/, false /*color*/);
 		let style_tinted = Style::new(&context,
 			SHADER_TEX_VERT, SHADER_TINTED_FRAG,
-			true/*texture*/,false/*alpha*/,true/*color*/,
-			false/*gradient*/);
+			false /*alpha*/, true /*color*/);
 		let style_complex = Style::new(&context,
 			SHADER_COMPLEX_VERT, SHADER_COMPLEX_FRAG,
-			true/*texture*/,false/*alpha*/,false/*color*/,
-			true/*gradient*/);
+			false/*alpha*/,false/*color*/);
 
 		let wh = window.wh();
 		let ar = wh.0 as f64 / wh.1 as f64;
@@ -288,11 +271,8 @@ impl base::Display for Display {
 		}
 
 		// Update Window:
-		self.context.clear();
-
 		// TODO: This is copied pretty much from adi_gpu_vulkan.  Move
 		// to the base.
-
 		let matrix = IDENTITY
 			.rotate(self.rotate_xyz.0, self.rotate_xyz.1,
 				self.rotate_xyz.2)
@@ -302,7 +282,7 @@ impl base::Display for Display {
 
 		// Opaque & Alpha Shapes need a camera.
 		for i in (&self.styles).iter() {
-			self.context.use_program(i.shader);
+			self.context.use_program(&i.shader);
 			self.context.set_int1(i.has_camera, 1);
 		}
 
@@ -330,7 +310,7 @@ impl base::Display for Display {
 
 		// Gui Elements don't want a camera.
 		for i in (&self.styles).iter() {
-			self.context.use_program(i.shader);
+			self.context.use_program(&i.shader);
 			self.context.set_int1(i.has_camera, 0);
 		}
 
@@ -361,7 +341,7 @@ impl base::Display for Display {
 			.to_f32_array();
 
 		for i in (&self.styles).iter() {
-			self.context.use_program(i.shader);
+			self.context.use_program(&i.shader);
 			self.context.set_mat4(i.camera_uniform, &cam);
 		}
 	}
@@ -370,10 +350,10 @@ impl base::Display for Display {
 		// TODO most is duplicate from other implementation.
 		let index = self.models.len();
 
-		let buffer = self.context.new_buffers(1)[0];
+		let buffer = Buffer::new(&self.context);
 
 		let vertex_buffer = buffer;
-		self.context.bind_buffer(vertex_buffer);
+		self.context.bind_buffer(&vertex_buffer);
 		self.context.set_buffer(vertices);
 
 		let points = vertices.to_vec();
@@ -395,7 +375,7 @@ impl base::Display for Display {
 		};
 
 		for i in (&self.styles).iter() {
-			self.context.use_program(i.shader);
+			self.context.use_program(&i.shader);
 			self.context.set_vec4(i.fog, &fogc);
 			self.context.set_vec2(i.range, &fogr);
 		}
@@ -419,9 +399,9 @@ impl base::Display for Display {
 	fn gradient(&mut self, colors: &[f32]) -> Gradient {
 		// TODO: A lot of duplication here from adi_gpu_vulkan.  Put in
 		// base.
-		let vertex_buffer = self.context.new_buffers(1)[0];
+		let vertex_buffer = Buffer::new(&self.context);
 
-		self.context.bind_buffer(vertex_buffer);
+		self.context.bind_buffer(&vertex_buffer);
 		self.context.set_buffer(colors);
 
 		let a = self.gradients.len();
@@ -437,9 +417,9 @@ impl base::Display for Display {
 	fn texcoords(&mut self, texcoords: &[f32]) -> TexCoords {
 		// TODO: A lot of duplication here from adi_gpu_vulkan.  Put in
 		// base.
-		let vertex_buffer = self.context.new_buffers(1)[0];
+		let vertex_buffer = Buffer::new(&self.context);
 
-		self.context.bind_buffer(vertex_buffer);
+		self.context.bind_buffer(&vertex_buffer);
 		self.context.set_buffer(texcoords);
 
 		let a = self.texcoords.len();
@@ -469,17 +449,12 @@ impl base::Display for Display {
 
 		let shape = ShapeData {
 			style: STYLE_SOLID,
-			num_buffers: 0,
-			buffers: [
-				unsafe { mem::uninitialized() },
-				unsafe { mem::uninitialized() }
-			],
+			buffers: [None, None],
 			has_fog: fog,
 			alpha: None,
 			color: Some(color),
 			texture: None,
-			vertex_buffer: self.models[model.0].vertex_buffer,
-			vertice_count: self.models[model.0].vertex_count,
+			vertex_buffer: self.models[model.0].vertex_buffer.clone(),
 			bbox,
 			model: model.0,
 			transform, // Transformation matrix.
@@ -514,17 +489,15 @@ impl base::Display for Display {
 
 		let shape = ShapeData {
 			style: STYLE_GRADIENT,
-			num_buffers: 1,
 			buffers: [
-				self.gradients[colors.0].vertex_buffer,
-				unsafe { mem::uninitialized() }
+				Some(self.gradients[colors.0].vertex_buffer.clone()),
+				None
 			],
 			has_fog: fog,
 			alpha: None,
 			color: None,
 			texture: None,
-			vertex_buffer: self.models[model.0].vertex_buffer,
-			vertice_count: self.models[model.0].vertex_count,
+			vertex_buffer: self.models[model.0].vertex_buffer.clone(),
 			bbox,
 			model: model.0,
 			transform, // Transformation matrix.
@@ -559,17 +532,15 @@ impl base::Display for Display {
 
 		let shape = ShapeData {
 			style: STYLE_TEXTURE,
-			num_buffers: 1,
 			buffers: [
-				self.texcoords[tc.0].vertex_buffer,
-				unsafe { mem::uninitialized() }
+				Some(self.texcoords[tc.0].vertex_buffer.clone()),
+				None
 			],
 			has_fog: fog,
 			alpha: None,
 			color: None,
 			texture: Some(self.textures[texture.0].t),
-			vertex_buffer: self.models[model.0].vertex_buffer,
-			vertice_count: self.models[model.0].vertex_count,
+			vertex_buffer: self.models[model.0].vertex_buffer.clone(),
 			bbox,
 			model: model.0,
 			transform, // Transformation matrix.
@@ -604,17 +575,15 @@ impl base::Display for Display {
 
 		let shape = ShapeData {
 			style: STYLE_FADED,
-			num_buffers: 1,
 			buffers: [
-				self.texcoords[tc.0].vertex_buffer,
-				unsafe { mem::uninitialized() }
+				Some(self.texcoords[tc.0].vertex_buffer.clone()),
+				None
 			],
 			has_fog: fog,
 			alpha: Some(alpha),
 			color: None,
 			texture: Some(self.textures[texture.0].t),
-			vertex_buffer: self.models[model.0].vertex_buffer,
-			vertice_count: self.models[model.0].vertex_count,
+			vertex_buffer: self.models[model.0].vertex_buffer.clone(),
 			bbox,
 			model: model.0,
 			transform, // Transformation matrix.
@@ -647,17 +616,15 @@ impl base::Display for Display {
 
 		let shape = ShapeData {
 			style: STYLE_TINTED,
-			num_buffers: 1,
 			buffers: [
-				self.texcoords[tc.0].vertex_buffer,
-				unsafe { mem::uninitialized() },
+				Some(self.texcoords[tc.0].vertex_buffer.clone()),
+				None,
 			],
 			has_fog: fog,
 			alpha: None,
 			color: Some(tint),
 			texture: Some(self.textures[texture.0].t),
-			vertex_buffer: self.models[model.0].vertex_buffer,
-			vertice_count: self.models[model.0].vertex_count,
+			vertex_buffer: self.models[model.0].vertex_buffer.clone(),
 			bbox,
 			model: model.0,
 			transform, // Transformation matrix.
@@ -699,17 +666,15 @@ impl base::Display for Display {
 
 		let shape = ShapeData {
 			style: STYLE_COMPLEX,
-			num_buffers: 2,
 			buffers: [
-				self.texcoords[tc.0].vertex_buffer,
-				self.gradients[tints.0].vertex_buffer,
+				Some(self.texcoords[tc.0].vertex_buffer.clone()),
+				Some(self.gradients[tints.0].vertex_buffer.clone()),
 			],
 			has_fog: fog,
 			alpha: None,
 			color: None,
 			texture: Some(self.textures[texture.0].t),
-			vertex_buffer: self.models[model.0].vertex_buffer,
-			vertice_count: self.models[model.0].vertex_count,
+			vertex_buffer: self.models[model.0].vertex_buffer.clone(),
 			bbox,
 			model: model.0,
 			transform, // Transformation matrix.
@@ -804,23 +769,20 @@ impl base::Display for Display {
 }
 
 fn draw_shape(context: &OpenGL, style: &Style, shape: &ShapeData) {
-	context.use_program(style.shader);
+	context.use_program(&style.shader);
 	context.set_mat4(style.matrix_uniform, &shape.transform.to_f32_array());
 
-	if style.texpos.0 != -1 {
-		// Bind texture coordinates buffer
-		context.bind_buffer(shape.buffers[0]);
-		// Bind vertex buffer to attribute
-		context.vertex_attrib(&style.texpos);
+	if !style.texpos.is_none() {
+		// Set texpos for the program from the texpos buffer.
+		style.texpos.set(context, shape.buffers[0].as_ref().unwrap());
 		// Bind the texture
 		context.use_texture(&shape.texture.unwrap());
 	}
 
-	if style.acolor.0 != -1 {
-		// Bind color buffer
-		context.bind_buffer(shape.buffers[0]);
-		// Bind vertex buffer to attribute
-		context.vertex_attrib(&style.acolor);
+	if !style.acolor.is_none() {
+		// Set colors for the program from the color buffer.
+		// TODO: probably shouldn't be same buffer as texpos.
+		style.acolor.set(context, shape.buffers[0].as_ref().unwrap());
 	}
 
 	if style.alpha != -1 {
@@ -837,9 +799,8 @@ fn draw_shape(context: &OpenGL, style: &Style, shape: &ShapeData) {
 		context.set_int1(style.has_fog, 0);
 	}
 
-	context.bind_buffer(shape.vertex_buffer);
-	context.vertex_attrib(&style.position);
-
+	// Set vertices for the program from the vertex buffer.
+	style.position.set(context, &shape.vertex_buffer);
 	for i in shape.fans.iter() {
 		context.draw_arrays(i.0, i.1);
 	}
