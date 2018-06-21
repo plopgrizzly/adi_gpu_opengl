@@ -1,9 +1,12 @@
-// "adi_gpu_opengl" crate - Licensed under the MIT LICENSE
-//  * Copyright (c) 2018  Jeron A. Lau <jeron.lau@plopgrizzly.com>
+// "adi_gpu_opengl" - Aldaron's Device Interface / GPU / OpenGL
+//
+// Copyright Jeron A. Lau 2018.
+// Distributed under the Boost Software License, Version 1.0.
+// (See accompanying file LICENSE_1_0.txt or copy at
+// https://www.boost.org/LICENSE_1_0.txt)
 //
 //! OpenGL implementation for adi_gpu.
 
-extern crate ami;
 extern crate asi_opengl;
 extern crate adi_gpu_base;
 
@@ -15,13 +18,14 @@ pub use base::Model;
 pub use base::TexCoords;
 pub use base::Texture;
 
-use ami::*;
 use adi_gpu_base as base;
 use asi_opengl::{
 	OpenGL, OpenGLBuilder, VertexData, Program, Buffer, UniformData,
 	Feature, Topology,
 };
-use adi_gpu_base::{ Graphic, WindowConnection, ShapeHandle };
+use adi_gpu_base::{
+	Graphic, WindowConnection, ShapeHandle, Mat4, Vec3, IDENTITY
+};
 
 const SHADER_SOLID_FRAG: &'static [u8] = include_bytes!("shaders/solid-frag.glsl");
 const SHADER_SOLID_VERT: &'static [u8] = include_bytes!("shaders/solid-vert.glsl");
@@ -85,19 +89,26 @@ struct ShapeData {
 	has_fog: bool,
 	alpha: Option<f32>,
 	color: Option<[f32; 4]>,
-	transform: ami::Mat4, // Transformation matrix.
+	transform: Mat4, // Transformation matrix.
 	texture: Option<asi_opengl::Texture>,
 	vertex_buffer: Buffer,
-	bbox: BBox,
-	model: usize,
 	fans: Vec<(u32, u32)>,
+}
+
+impl ::adi_gpu_base::Point for ShapeData {
+	fn point(&self) -> Vec3 {
+		Vec3::new(
+			self.transform.0[12],
+			self.transform.0[13],
+			self.transform.0[14]
+		)
+	}
 }
 
 struct ModelData {
 	vertex_buffer: Buffer,
 	// TODO alot could be in base as duplicate
 	vertex_count: u32,
-	points: Vec<f32>,
 	fans: Vec<(u32, u32)>,
 }
 
@@ -117,32 +128,25 @@ struct TextureData {
 	h: u32,
 }
 
-impl ::ami::Collider for ShapeData {
-	fn bbox(&self) -> ::ami::BBox {
-		self.bbox
-	}
-}
-
 /// To render anything with adi_gpu, you have to make a `Display`
 pub struct Display {
 	window: adi_gpu_base::Window,
 	context: OpenGL,
 	color: (f32, f32, f32),
-	opaque_octree: ::ami::Octree<ShapeData>,
-	alpha_octree: ::ami::Octree<ShapeData>,
+	opaque_ind: Vec<u32>,
+	alpha_ind: Vec<u32>,
+	opaque_vec: Vec<ShapeData>,
+	alpha_vec: Vec<ShapeData>,
 	gui_vec: Vec<ShapeData>,
 	models: Vec<ModelData>,
 	texcoords: Vec<TexcoordsData>,
 	gradients: Vec<GradientData>,
 	textures: Vec<TextureData>,
-	opaque_sorted: Vec<u32>,
-	alpha_sorted: Vec<u32>,
 	styles: [Style; 6],
 	xyz: (f32,f32,f32),
 	rotate_xyz: (f32,f32,f32),
-	frustum: ::ami::Frustum,
-	ar: f64,
-	projection: ::ami::Mat4,
+	ar: f32,
+	projection: Mat4,
 }
 
 pub fn new<G: AsRef<Graphic>>(title: &str, icon: G)
@@ -203,7 +207,7 @@ pub fn new<G: AsRef<Graphic>>(title: &str, icon: G)
 			SHADER_COMPLEX_VERT, SHADER_COMPLEX_FRAG);
 
 		let wh = window.wh();
-		let ar = wh.0 as f64 / wh.1 as f64;
+		let ar = wh.0 as f32 / wh.1 as f32;
 
 		let projection = base::projection(ar, 90.0);
 
@@ -214,15 +218,15 @@ pub fn new<G: AsRef<Graphic>>(title: &str, icon: G)
 			window,
 			context,
 			color: (0.0, 0.0, 0.0),
-			alpha_octree: ::ami::Octree::new(),
-			opaque_octree: ::ami::Octree::new(),
-			gui_vec: Vec::new(),
-			opaque_sorted: Vec::new(),
-			alpha_sorted: Vec::new(),
-			models: Vec::new(),
-			texcoords: Vec::new(),
-			gradients: Vec::new(),
-			textures: Vec::new(),
+			alpha_ind: vec![],
+			opaque_ind: vec![],
+			alpha_vec: vec![],
+			opaque_vec: vec![],
+			gui_vec: vec![],
+			models: vec![],
+			texcoords: vec![],
+			gradients: vec![],
+			textures: vec![],
 			styles: [
 				style_gradient,
 				style_texture,
@@ -233,11 +237,6 @@ pub fn new<G: AsRef<Graphic>>(title: &str, icon: G)
 			],
 			xyz: (0.0, 0.0, 0.0),
 			rotate_xyz: (0.0, 0.0, 0.0),
-			frustum: ::ami::Frustum::new(::ami::Vec3::new(0.0, 0.0, 0.0),
-				100.0 /* TODO: Based on fog.0 + fog.1 */, 90.0,
-				(2.0 * ((45.0 * ::std::f64::consts::PI / 180.0).tan() / ar).atan()) as f32,
-				0.0, 0.0
-			), // TODO: COPIED FROM renderer/mod.rs
 			ar,
 			projection,
 		};
@@ -265,12 +264,6 @@ impl base::Display for Display {
 		// Update Window:
 		// TODO: This is copied pretty much from adi_gpu_vulkan.  Move
 		// to the base.
-		let matrix = IDENTITY
-			.rotate(self.rotate_xyz.0, self.rotate_xyz.1,
-				self.rotate_xyz.2)
-			.translate(self.xyz.0, self.xyz.1, self.xyz.2);
-
-		let frustum = matrix * self.frustum;
 
 		// Opaque & Alpha Shapes need a camera.
 		for i in (&self.styles).iter() {
@@ -280,17 +273,17 @@ impl base::Display for Display {
 		// Enable for 3D depth testing
 		self.context.enable(Feature::DepthTest);
 
-		self.opaque_octree.nearest(&mut self.opaque_sorted, frustum);
-		for id in self.opaque_sorted.iter() {
-			let shape = &self.opaque_octree[*id];
-
+		// sort nearest
+		::adi_gpu_base::zsort(&mut self.opaque_ind, &self.opaque_vec,
+			true, Vec3::new(self.xyz.0, self.xyz.1, self.xyz.2));
+		for shape in self.opaque_vec.iter() {
 			draw_shape(&self.styles[shape.style], shape);
 		}
 
-		self.alpha_octree.farthest(&mut self.alpha_sorted, frustum);
-		for id in self.alpha_sorted.iter() {
-			let shape = &self.alpha_octree[*id];
-
+		// sort farthest
+		::adi_gpu_base::zsort(&mut self.alpha_ind, &self.alpha_vec,
+			false, Vec3::new(self.xyz.0, self.xyz.1, self.xyz.2));
+		for shape in self.alpha_vec.iter() {
 			draw_shape(&self.styles[shape.style], shape);
 		}
 
@@ -302,6 +295,7 @@ impl base::Display for Display {
 			i.has_camera.set_int1(0);
 		}
 
+		// No need to sort gui elements.
 		for shape in self.gui_vec.iter() {
 			draw_shape(&self.styles[shape.style], shape);
 		}
@@ -324,8 +318,7 @@ impl base::Display for Display {
 		let cam = (IDENTITY
 			.translate(-self.xyz.0, -self.xyz.1, -self.xyz.2)
 			.rotate(-self.rotate_xyz.0, -self.rotate_xyz.1,
-				-self.rotate_xyz.2) * self.projection)
-			.to_f32_array();
+				-self.rotate_xyz.2) * self.projection).0;
 
 		for i in (&self.styles).iter() {
 			i.camera_uniform.set_mat4(&cam);
@@ -341,11 +334,10 @@ impl base::Display for Display {
 		let vertex_buffer = buffer;
 		vertex_buffer.set(vertices);
 
-		let points = vertices.to_vec();
 
 		self.models.push(ModelData {
 			vertex_buffer, vertex_count: vertices.len() as u32 / 4,
-			points, fans
+			fans
 		});
 
 		Model(index)
@@ -421,10 +413,6 @@ impl base::Display for Display {
 		color: [f32; 4], blending: bool, fog: bool, camera: bool)
 		-> Shape
 	{
-		let bbox = base::vertices_to_bbox(
-			self.models[model.0].points.as_slice(), transform
-		);
-
 		let shape = ShapeData {
 			style: STYLE_SOLID,
 			buffers: [None, None],
@@ -433,19 +421,24 @@ impl base::Display for Display {
 			color: Some(color),
 			texture: None,
 			vertex_buffer: self.models[model.0].vertex_buffer.clone(),
-			bbox,
-			model: model.0,
 			transform, // Transformation matrix.
 			fans: self.models[model.0].fans.clone(),
 		};
 
 		base::new_shape(if !camera && !fog {
+			let index = self.gui_vec.len() as u32;
 			self.gui_vec.push(shape);
-			base::ShapeHandle::Gui(self.gui_vec.len() as u32 - 1)
+			base::ShapeHandle::Gui(index)
 		} else if blending {
-			base::ShapeHandle::Alpha(self.alpha_octree.add(shape))
+			let index = self.alpha_vec.len() as u32;
+			self.alpha_vec.push(shape);
+			self.alpha_ind.push(index);
+			base::ShapeHandle::Alpha(index)
 		} else {
-			base::ShapeHandle::Opaque(self.opaque_octree.add(shape))
+			let index = self.opaque_vec.len() as u32;
+			self.opaque_vec.push(shape);
+			self.opaque_ind.push(index);
+			base::ShapeHandle::Opaque(index)
 		})
 	}
 
@@ -461,10 +454,6 @@ impl base::Display for Display {
 			panic!("TexCoord length doesn't match gradient length");
 		}
 
-		let bbox = base::vertices_to_bbox(
-			self.models[model.0].points.as_slice(), transform
-		);
-
 		let shape = ShapeData {
 			style: STYLE_GRADIENT,
 			buffers: [
@@ -476,19 +465,24 @@ impl base::Display for Display {
 			color: None,
 			texture: None,
 			vertex_buffer: self.models[model.0].vertex_buffer.clone(),
-			bbox,
-			model: model.0,
 			transform, // Transformation matrix.
 			fans: self.models[model.0].fans.clone(),
 		};
 
 		base::new_shape(if !camera && !fog {
+			let index = self.gui_vec.len() as u32;
 			self.gui_vec.push(shape);
-			base::ShapeHandle::Gui(self.gui_vec.len() as u32 - 1)
+			base::ShapeHandle::Gui(index)
 		} else if blending {
-			base::ShapeHandle::Alpha(self.alpha_octree.add(shape))
+			let index = self.alpha_vec.len() as u32;
+			self.alpha_vec.push(shape);
+			self.alpha_ind.push(index);
+			base::ShapeHandle::Alpha(index)
 		} else {
-			base::ShapeHandle::Opaque(self.opaque_octree.add(shape))
+			let index = self.opaque_vec.len() as u32;
+			self.opaque_vec.push(shape);
+			self.opaque_ind.push(index);
+			base::ShapeHandle::Opaque(index)
 		})
 	}
 
@@ -504,10 +498,6 @@ impl base::Display for Display {
 			panic!("TexCoord length doesn't match vertex length");
 		}
 
-		let bbox = base::vertices_to_bbox(
-			self.models[model.0].points.as_slice(), transform
-		);
-
 		let shape = ShapeData {
 			style: STYLE_TEXTURE,
 			buffers: [
@@ -519,19 +509,24 @@ impl base::Display for Display {
 			color: None,
 			texture: Some(self.textures[texture.0].t.clone()),
 			vertex_buffer: self.models[model.0].vertex_buffer.clone(),
-			bbox,
-			model: model.0,
 			transform, // Transformation matrix.
 			fans: self.models[model.0].fans.clone(),
 		};
 
 		base::new_shape(if !camera && !fog {
+			let index = self.gui_vec.len() as u32;
 			self.gui_vec.push(shape);
-			base::ShapeHandle::Gui(self.gui_vec.len() as u32 - 1)
+			base::ShapeHandle::Gui(index)
 		} else if blending {
-			base::ShapeHandle::Alpha(self.alpha_octree.add(shape))
+			let index = self.alpha_vec.len() as u32;
+			self.alpha_vec.push(shape);
+			self.alpha_ind.push(index);
+			base::ShapeHandle::Alpha(index)
 		} else {
-			base::ShapeHandle::Opaque(self.opaque_octree.add(shape))
+			let index = self.opaque_vec.len() as u32;
+			self.opaque_vec.push(shape);
+			self.opaque_ind.push(index);
+			base::ShapeHandle::Opaque(index)
 		})
 	}
 
@@ -547,10 +542,6 @@ impl base::Display for Display {
 			panic!("TexCoord length doesn't match vertex length");
 		}
 
-		let bbox = base::vertices_to_bbox(
-			self.models[model.0].points.as_slice(), transform
-		);
-
 		let shape = ShapeData {
 			style: STYLE_FADED,
 			buffers: [
@@ -562,17 +553,19 @@ impl base::Display for Display {
 			color: None,
 			texture: Some(self.textures[texture.0].t.clone()),
 			vertex_buffer: self.models[model.0].vertex_buffer.clone(),
-			bbox,
-			model: model.0,
 			transform, // Transformation matrix.
 			fans: self.models[model.0].fans.clone(),
 		};
 
 		base::new_shape(if !camera && !fog {
+			let index = self.gui_vec.len() as u32;
 			self.gui_vec.push(shape);
-			base::ShapeHandle::Gui(self.gui_vec.len() as u32 - 1)
+			base::ShapeHandle::Gui(index)
 		} else {
-			base::ShapeHandle::Alpha(self.alpha_octree.add(shape))
+			let index = self.alpha_vec.len() as u32;
+			self.alpha_vec.push(shape);
+			self.alpha_ind.push(index);
+			base::ShapeHandle::Alpha(index)
 		})
 	}
 
@@ -588,10 +581,6 @@ impl base::Display for Display {
 			panic!("TexCoord length doesn't match vertex length");
 		}
 
-		let bbox = base::vertices_to_bbox(
-			self.models[model.0].points.as_slice(), transform
-		);
-
 		let shape = ShapeData {
 			style: STYLE_TINTED,
 			buffers: [
@@ -603,19 +592,24 @@ impl base::Display for Display {
 			color: Some(tint),
 			texture: Some(self.textures[texture.0].t.clone()),
 			vertex_buffer: self.models[model.0].vertex_buffer.clone(),
-			bbox,
-			model: model.0,
 			transform, // Transformation matrix.
 			fans: self.models[model.0].fans.clone(),
 		};
 
 		base::new_shape(if !camera && !fog {
+			let index = self.gui_vec.len() as u32;
 			self.gui_vec.push(shape);
-			base::ShapeHandle::Gui(self.gui_vec.len() as u32 - 1)
+			base::ShapeHandle::Gui(index)
 		} else if blending {
-			base::ShapeHandle::Alpha(self.alpha_octree.add(shape))
+			let index = self.alpha_vec.len() as u32;
+			self.alpha_vec.push(shape);
+			self.alpha_ind.push(index);
+			base::ShapeHandle::Alpha(index)
 		} else {
-			base::ShapeHandle::Opaque(self.opaque_octree.add(shape))
+			let index = self.opaque_vec.len() as u32;
+			self.opaque_vec.push(shape);
+			self.opaque_ind.push(index);
+			base::ShapeHandle::Opaque(index)
 		})
 	}
 
@@ -638,10 +632,6 @@ impl base::Display for Display {
 			panic!("TexCoord length doesn't match gradient length");
 		}
 
-		let bbox = base::vertices_to_bbox(
-			self.models[model.0].points.as_slice(), transform
-		);
-
 		let shape = ShapeData {
 			style: STYLE_COMPLEX,
 			buffers: [
@@ -653,73 +643,42 @@ impl base::Display for Display {
 			color: None,
 			texture: Some(self.textures[texture.0].t.clone()),
 			vertex_buffer: self.models[model.0].vertex_buffer.clone(),
-			bbox,
-			model: model.0,
 			transform, // Transformation matrix.
 			fans: self.models[model.0].fans.clone(),
 		};
 
 		base::new_shape(if !camera && !fog {
+			let index = self.gui_vec.len() as u32;
 			self.gui_vec.push(shape);
-			base::ShapeHandle::Gui(self.gui_vec.len() as u32 - 1)
+			base::ShapeHandle::Gui(index)
 		} else if blending {
-			base::ShapeHandle::Alpha(self.alpha_octree.add(shape))
+			let index = self.alpha_vec.len() as u32;
+			self.alpha_vec.push(shape);
+			self.alpha_ind.push(index);
+			base::ShapeHandle::Alpha(index)
 		} else {
-			base::ShapeHandle::Opaque(self.opaque_octree.add(shape))
+			let index = self.opaque_vec.len() as u32;
+			self.opaque_vec.push(shape);
+			self.opaque_ind.push(index);
+			base::ShapeHandle::Opaque(index)
 		})
 	}
 
-	fn transform(&mut self, shape: &mut Shape, transform: Mat4) {
+	fn transform(&mut self, shape: &Shape, transform: Mat4) {
 		// TODO: put in base, some is copy from vulkan implementation.
 		match base::get_shape(shape) {
-			ShapeHandle::Opaque(ref mut x) => {
-				let model = self.opaque_octree[*x].model;
-				let bbox = base::vertices_to_bbox(
-					self.models[model].points.as_slice(),
-					transform);
-
-				self.opaque_octree[*x].bbox = bbox;
-				let shape = self.opaque_octree.remove(*x);
-				*x = self.opaque_octree.add(shape);
-
-				self.opaque_octree[*x].transform = transform;
+			ShapeHandle::Opaque(x) => {
+				let x = x as usize; // for indexing
+				self.opaque_vec[x].transform = transform;
 			},
-			ShapeHandle::Alpha(ref mut x) => {
-				let model = self.alpha_octree[*x].model;
-				let bbox = base::vertices_to_bbox(
-					self.models[model].points.as_slice(),
-					transform);
-
-				self.alpha_octree[*x].bbox = bbox;
-				let shape = self.alpha_octree.remove(*x);
-				*x = self.alpha_octree.add(shape);
-
-				self.alpha_octree[*x].transform = transform;
+			ShapeHandle::Alpha(x) => {
+				let x = x as usize; // for indexing
+				self.alpha_vec[x].transform = transform;
 			},
 			ShapeHandle::Gui(x) => {
 				let x = x as usize; // for indexing
-
-				let model = self.gui_vec[x].model;
-				let bbox = base::vertices_to_bbox(
-					self.models[model].points.as_slice(),
-					transform);
-
-				self.gui_vec[x].bbox = bbox;
-
 				self.gui_vec[x].transform = transform;
 			},
-		}
-	}
-
-	fn collision(&self, shape: &Shape, force: &mut Vec3) -> Option<u32> {
-		match base::get_shape(shape) {
-			ShapeHandle::Opaque(x) => {
-				self.opaque_octree.bounce_test(x, force)
-			},
-			ShapeHandle::Alpha(x) => {
-				self.alpha_octree.bounce_test(x, force)
-			},
-			_ => panic!("No gui collision detection!")
 		}
 	}
 
@@ -727,14 +686,7 @@ impl base::Display for Display {
 		let xyz = self.xyz;
 		let rotate_xyz = self.rotate_xyz;
 
-		self.ar = wh.0 as f64 / wh.1 as f64;
-		self.frustum = ::ami::Frustum::new(
-			self.frustum.center,
-			self.frustum.radius,
-			90.0, (2.0 * ((45.0 * ::std::f64::consts::PI / 180.0)
-				.tan() / self.ar).atan()) as f32,
-			self.frustum.xrot, self.frustum.yrot);
-
+		self.ar = wh.0 as f32 / wh.1 as f32;
 		self.context.viewport(wh.0, wh.1);
 
 		self.projection = ::base::projection(self.ar, 90.0);
@@ -747,7 +699,7 @@ impl base::Display for Display {
 }
 
 fn draw_shape(style: &Style, shape: &ShapeData) {
-	style.matrix_uniform.set_mat4(&shape.transform.to_f32_array());
+	style.matrix_uniform.set_mat4(&shape.transform.0);
 
 	if !style.texpos.is_none() {
 		// Set texpos for the program from the texpos buffer.

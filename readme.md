@@ -1,11 +1,13 @@
-# Aldaron's Device Interface / GPU / OpenGL
+# [Aldaron's Device Interface / GPU / OpenGL](https://crates.io/crates/adi_gpu_opengl)
 OpenGL implementation for adi_gpu
 
-[Cargo](https://crates.io/crates/adi_gpu_opengl) /
-[Documentation](https://docs.rs/adi_gpu_opengl) /
-[Change Log](http://plopgrizzly.com/adi_gpu_opengl/changelog.html)
+## [Contributing](http://plopgrizzly.com/contributing/en#contributing)
 
-# Contributing
-If you'd like to help implement functions for unsupported platforms, fix bugs,
-improve the API or improve the Documentation, then contact me at
-jeron.lau@plopgrizzly.com. I'll appreciate any help.
+## Change Log
+### 0.5
+* Things are actually freed now from updating to new + safe `asi_opengl`.
+
+### 0.4
+* Update to newest adi\_gpu\_base.
+
+## Developed by [Plop Grizzly](http://plopgrizzly.com)
