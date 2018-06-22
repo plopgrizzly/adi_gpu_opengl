@@ -23,9 +23,7 @@ use asi_opengl::{
 	OpenGL, OpenGLBuilder, VertexData, Program, Buffer, UniformData,
 	Feature, Topology,
 };
-use adi_gpu_base::{
-	Graphic, WindowConnection, ShapeHandle, Mat4, Vec3, IDENTITY
-};
+use adi_gpu_base::*;
 
 const SHADER_SOLID_FRAG: &'static [u8] = include_bytes!("shaders/solid-frag.glsl");
 const SHADER_SOLID_VERT: &'static [u8] = include_bytes!("shaders/solid-vert.glsl");
@@ -89,7 +87,7 @@ struct ShapeData {
 	has_fog: bool,
 	alpha: Option<f32>,
 	color: Option<[f32; 4]>,
-	transform: Mat4, // Transformation matrix.
+	transform: Transform, // Transformation matrix.
 	texture: Option<asi_opengl::Texture>,
 	vertex_buffer: Buffer,
 	fans: Vec<(u32, u32)>,
@@ -97,11 +95,8 @@ struct ShapeData {
 
 impl ::adi_gpu_base::Point for ShapeData {
 	fn point(&self) -> Vec3 {
-		Vec3::new(
-			self.transform.0[12],
-			self.transform.0[13],
-			self.transform.0[14]
-		)
+		// Position vector at origin * object transform.
+		(self.transform.0 * vec4!(0f32, 0f32, 0f32, 1f32)).xyz()
 	}
 }
 
@@ -143,10 +138,10 @@ pub struct Display {
 	gradients: Vec<GradientData>,
 	textures: Vec<TextureData>,
 	styles: [Style; 6],
-	xyz: (f32,f32,f32),
-	rotate_xyz: (f32,f32,f32),
+	xyz: Vec3,
+	rotate_xyz: Vec3,
 	ar: f32,
-	projection: Mat4,
+	projection: Transform,
 }
 
 pub fn new<G: AsRef<Graphic>>(title: &str, icon: G)
@@ -209,7 +204,7 @@ pub fn new<G: AsRef<Graphic>>(title: &str, icon: G)
 		let wh = window.wh();
 		let ar = wh.0 as f32 / wh.1 as f32;
 
-		let projection = base::projection(ar, 90.0);
+		let projection = base::projection(ar, 0.5 * PI);
 
 		// Adjust the viewport
 		context.viewport(wh.0, wh.1);
@@ -235,14 +230,14 @@ pub fn new<G: AsRef<Graphic>>(title: &str, icon: G)
 				style_solid,
 				style_complex,
 			],
-			xyz: (0.0, 0.0, 0.0),
-			rotate_xyz: (0.0, 0.0, 0.0),
+			xyz: vec3!(0.0, 0.0, 0.0),
+			rotate_xyz: vec3!(0.0, 0.0, 0.0),
 			ar,
 			projection,
 		};
 
 		use base::Display;
-		display.camera((0.0, 0.0, 0.0), (0.0, 0.0, 0.0));
+		display.camera(vec3!(0.0, 0.0, 0.0), vec3!(0.0, 0.0, 0.0));
 
 		Ok(Box::new(display))
 	} else {
@@ -275,14 +270,14 @@ impl base::Display for Display {
 
 		// sort nearest
 		::adi_gpu_base::zsort(&mut self.opaque_ind, &self.opaque_vec,
-			true, Vec3::new(self.xyz.0, self.xyz.1, self.xyz.2));
+			true, self.xyz);
 		for shape in self.opaque_vec.iter() {
 			draw_shape(&self.styles[shape.style], shape);
 		}
 
 		// sort farthest
 		::adi_gpu_base::zsort(&mut self.alpha_ind, &self.alpha_vec,
-			false, Vec3::new(self.xyz.0, self.xyz.1, self.xyz.2));
+			false, self.xyz);
 		for shape in self.alpha_vec.iter() {
 			draw_shape(&self.styles[shape.style], shape);
 		}
@@ -307,7 +302,7 @@ impl base::Display for Display {
 		None
 	}
 
-	fn camera(&mut self, xyz: (f32,f32,f32), rotate_xyz: (f32,f32,f32)) {
+	fn camera(&mut self, xyz: Vec3, rotate_xyz: Vec3) {
 		// Set Camera
 		self.xyz = xyz;
 		self.rotate_xyz = rotate_xyz;
@@ -315,13 +310,13 @@ impl base::Display for Display {
 		// Write To Camera Uniforms.  TODO: only before use (not here).
 		// TODO this assignment copied from vulkan implementation.  Put
 		// in the base library.
-		let cam = (IDENTITY
-			.translate(-self.xyz.0, -self.xyz.1, -self.xyz.2)
-			.rotate(-self.rotate_xyz.0, -self.rotate_xyz.1,
-				-self.rotate_xyz.2) * self.projection).0;
+		let cam = Transform::IDENTITY
+			.t(vec3!()-self.xyz) // Move camera - TODO: negation operator?
+			.r(vec3!()-self.rotate_xyz) // Rotate camera - TODO: negation operator?
+			.m(self.projection.0); // Apply projection to camera
 
 		for i in (&self.styles).iter() {
-			i.camera_uniform.set_mat4(&cam);
+			i.camera_uniform.set_mat4(cam.into());
 		}
 	}
 
@@ -409,7 +404,7 @@ impl base::Display for Display {
 	}
 
 	#[inline(always)]
-	fn shape_solid(&mut self, model: &Model, transform: Mat4,
+	fn shape_solid(&mut self, model: &Model, transform: Transform,
 		color: [f32; 4], blending: bool, fog: bool, camera: bool)
 		-> Shape
 	{
@@ -443,7 +438,7 @@ impl base::Display for Display {
 	}
 
 	#[inline(always)]
-	fn shape_gradient(&mut self, model: &Model, transform: Mat4,
+	fn shape_gradient(&mut self, model: &Model, transform: Transform,
 		colors: Gradient, blending: bool, fog: bool, camera: bool)
 		-> Shape
 	{
@@ -487,7 +482,7 @@ impl base::Display for Display {
 	}
 
 	#[inline(always)]
-	fn shape_texture(&mut self, model: &Model, transform: Mat4,
+	fn shape_texture(&mut self, model: &Model, transform: Transform,
 		texture: &Texture, tc: TexCoords, blending: bool, fog: bool,
 		camera: bool) -> Shape
 	{
@@ -531,7 +526,7 @@ impl base::Display for Display {
 	}
 
 	#[inline(always)]
-	fn shape_faded(&mut self, model: &Model, transform: Mat4,
+	fn shape_faded(&mut self, model: &Model, transform: Transform,
 		texture: &Texture, tc: TexCoords, alpha: f32, fog: bool,
 		camera: bool) -> Shape
 	{
@@ -570,7 +565,7 @@ impl base::Display for Display {
 	}
 
 	#[inline(always)]
-	fn shape_tinted(&mut self, model: &Model, transform: Mat4,
+	fn shape_tinted(&mut self, model: &Model, transform: Transform,
 		texture: &Texture, tc: TexCoords, tint: [f32; 4], blending: bool,
 		fog: bool, camera: bool) -> Shape
 	{
@@ -614,7 +609,7 @@ impl base::Display for Display {
 	}
 
 	#[inline(always)]
-	fn shape_complex(&mut self, model: &Model, transform: Mat4,
+	fn shape_complex(&mut self, model: &Model, transform: Transform,
 		texture: &Texture, tc: TexCoords, tints: Gradient,
 		blending: bool, fog: bool, camera: bool) -> Shape
 	{
@@ -664,7 +659,7 @@ impl base::Display for Display {
 		})
 	}
 
-	fn transform(&mut self, shape: &Shape, transform: Mat4) {
+	fn transform(&mut self, shape: &Shape, transform: Transform) {
 		// TODO: put in base, some is copy from vulkan implementation.
 		match base::get_shape(shape) {
 			ShapeHandle::Opaque(x) => {
@@ -689,7 +684,7 @@ impl base::Display for Display {
 		self.ar = wh.0 as f32 / wh.1 as f32;
 		self.context.viewport(wh.0, wh.1);
 
-		self.projection = ::base::projection(self.ar, 90.0);
+		self.projection = ::base::projection(self.ar, 0.5 * PI);
 		self.camera(xyz, rotate_xyz);
 	}
 
@@ -699,7 +694,7 @@ impl base::Display for Display {
 }
 
 fn draw_shape(style: &Style, shape: &ShapeData) {
-	style.matrix_uniform.set_mat4(&shape.transform.0);
+	style.matrix_uniform.set_mat4(shape.transform.into());
 
 	if !style.texpos.is_none() {
 		// Set texpos for the program from the texpos buffer.
