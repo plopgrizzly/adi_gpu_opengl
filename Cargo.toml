@@ -17,7 +17,7 @@
 
 [package]
 name = "adi_gpu_opengl"
-version = "0.6.0"
+version = "0.7.0"
 authors = [
 	"Jeron A. Lau <jeron.lau@plopgrizzly.com>"
 ]
@@ -32,5 +32,5 @@ categories = ["gui", "game-engines", "hardware-support", "multimedia::video",
 	"rendering::graphics-api"]
 
 [dependencies]
-adi_gpu_base = "0.8"
+adi_gpu_base = "0.9"
 asi_opengl = "0.5"
