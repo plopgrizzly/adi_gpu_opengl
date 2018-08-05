@@ -1,19 +1,16 @@
-# "adi_gpu_opengl" - Aldaron's Device Interface / GPU / OpenGL
-#                             _        _
-#                            /@\——————/@\
-# .———  .                   |   o    o   |     .————      .            .
-# |   | |  .———   .———   .——.     []     .——.  |      .——    ———: ———: | .   .
-# |   | |  |   |  |   |  \   \   <##>   /   /  |      |   |    /    /  | |   |
-# |———  |  |   |  |   |   |   ¯        ¯   |   |   -- |   |   /    /   |  \ /
-# |     |  |   |  |———    |                |   |    | |   |  /    /    |   |
-# |     |   ———   |       |                |    ————  |   | :——— :———  |   |
-#                 |        \              /                              __/
-#                           ¯————————————¯
-#
 # Copyright Jeron A. Lau 2018.
-# Distributed under the Boost Software License, Version 1.0.
-# (See accompanying file LICENSE_1_0.txt or copy at
+# Dual-licensed under either the MIT License or the Boost Software License,
+# Version 1.0.  (See accompanying file LICENSE_1_0.txt or copy at
 # https://www.boost.org/LICENSE_1_0.txt)
+#
+# XXXX  X                    /5\——————/5\       XXXX      X           X
+# X   X X   XXX   XXXX      |   0    0   |     X      XXX   XXXX XXXX X X   X
+# X   X X  X   X  X   X  /"\|     <>     |/"\  X      X   X    X    X X X   X
+# XXXX  X  X   X  X   X  \  \\_  ====  _//  /  X   XX X   X   X    X  X  X X
+# X     X  X   X  XXXX    \_              _/   X    X X   X  X    X   X   X
+# X     X   XXX   X       / \            / \    XXXX  X   X XXXX XXXX X   X
+#                 X       \                /                            XX
+#                          --____________--
 
 [package]
 name = "adi_gpu_opengl"
@@ -21,11 +18,11 @@ version = "0.7.0"
 authors = [
 	"Jeron A. Lau <jeron.lau@plopgrizzly.com>"
 ]
-license = "BSL-1.0"
+license = "MIT / BSL-1.0"
 documentation = "https://docs.rs/adi_gpu_opengl"
-homepage = "https://plopgrizzly.com/adi_gpu_opengl"
-repository = "https://github.com/plopgrizzly/adi_gpu_opengl"
-readme = "readme.md"
+homepage = "https://gitlab.com/plopgrizzly/adi/"
+repository = "https://gitlab.com/plopgrizzly/adi/adi_gpu_opengl"
+readme = "README.md"
 description = "OpenGL implementation for adi_gpu"
 keywords = [ "opengl", "graphics", "gui", "hardware", "rendering" ]
 categories = ["gui", "game-engines", "hardware-support", "multimedia::video",
@@ -33,4 +30,4 @@ categories = ["gui", "game-engines", "hardware-support", "multimedia::video",
 
 [dependencies]
 adi_gpu_base = "0.9"
-asi_opengl = "0.5"
+asi_opengl = "0.6"

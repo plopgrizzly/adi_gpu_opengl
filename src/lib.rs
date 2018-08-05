@@ -1,10 +1,8 @@
-// "adi_gpu_opengl" - Aldaron's Device Interface / GPU / OpenGL
-//
 // Copyright Jeron A. Lau 2018.
-// Distributed under the Boost Software License, Version 1.0.
-// (See accompanying file LICENSE_1_0.txt or copy at
+// Dual-licensed under either the MIT License or the Boost Software License,
+// Version 1.0.  (See accompanying file LICENSE_1_0.txt or copy at
 // https://www.boost.org/LICENSE_1_0.txt)
-//
+
 //! OpenGL implementation for adi_gpu.
 
 extern crate asi_opengl;
@@ -119,8 +117,6 @@ struct GradientData {
 
 struct TextureData {
 	t: asi_opengl::Texture,
-	w: u32,
-	h: u32,
 }
 
 /// To render anything with adi_gpu, you have to make a `Display`
@@ -144,13 +140,11 @@ pub struct Display {
 	projection: Transform,
 }
 
-pub fn new<G: AsRef<Graphic>>(title: &str, icon: G)
-	-> Result<Box<Display>, &'static str>
+pub fn new(title: &str, icon: &afi::Video) -> Result<Box<Display>, &'static str>
 {
 	if let Some(tuple) = OpenGLBuilder::new() {
 		let (builder, v) = tuple;
-		let window = adi_gpu_base::Window::new(title,
-			icon.as_ref(), Some(v));
+		let window = adi_gpu_base::Window::new(title, icon, Some(v));
 
 		let context = builder.to_opengl(match window.get_connection() {
 			WindowConnection::Xcb(_, window) => // |
@@ -352,8 +346,9 @@ impl base::Display for Display {
 		}
 	}
 
-	fn texture(&mut self, graphic: &Graphic) -> Texture {
-		let (w, h, pixels) = graphic.as_ref().as_slice();
+	fn texture(&mut self, wh: (u16,u16), graphic: &VFrame) -> Texture {
+		let (w, h) = wh;
+		let pixels = graphic.0.as_slice();
 
 		let t = self.context.texture();
 
@@ -361,9 +356,9 @@ impl base::Display for Display {
 
 		let a = self.textures.len();
 
-		self.textures.push(TextureData { t, w, h });
+		self.textures.push(TextureData { t });
 
-		Texture(a)
+		Texture(a, w, h)
 	}
 
 	fn gradient(&mut self, colors: &[f32]) -> Gradient {
@@ -398,9 +393,11 @@ impl base::Display for Display {
 		TexCoords(a)
 	}
 
-	fn set_texture(&mut self, texture: &mut Texture, pixels: &[u32]) {
-		self.textures[texture.0].t.update(self.textures[texture.0].w,
-			self.textures[texture.0].h, pixels);
+	fn set_texture(&mut self, texture: &mut Texture, wh: (u16,u16),
+		graphic: &VFrame)
+	{
+		self.textures[texture.0].t.set(wh.0, wh.1,
+			graphic.0.as_slice());
 	}
 
 	#[inline(always)]
@@ -659,6 +656,27 @@ impl base::Display for Display {
 		})
 	}
 
+	#[inline(always)]
+	fn drop_shape(&mut self, shape: &Shape) {
+		match get_shape(&shape) {
+			ShapeHandle::Opaque(x) => {
+				let index = self.opaque_ind.iter()
+					.position(|y| *y == x).unwrap();
+				self.opaque_ind.remove(index);
+			},
+			ShapeHandle::Alpha(x) => {
+				let index = self.alpha_ind.iter()
+					.position(|y| *y == x).unwrap();
+				self.alpha_ind.remove(index);
+			},
+			ShapeHandle::Gui(x) => {
+				// TODO: make it obvious that there's only meant
+				// to be 1 GUI object.
+				self.gui_vec.clear();
+			},
+		}
+	}
+
 	fn transform(&mut self, shape: &Shape, transform: Transform) {
 		// TODO: put in base, some is copy from vulkan implementation.
 		match base::get_shape(shape) {
@@ -677,7 +695,7 @@ impl base::Display for Display {
 		}
 	}
 
-	fn resize(&mut self, wh: (u32, u32)) -> () {
+	fn resize(&mut self, wh: (u16, u16)) -> () {
 		let xyz = self.xyz;
 		let rotate_xyz = self.rotate_xyz;
 
@@ -688,7 +706,7 @@ impl base::Display for Display {
 		self.camera(xyz, rotate_xyz);
 	}
 
-	fn wh(&self) -> (u32, u32) {
+	fn wh(&self) -> (u16, u16) {
 		self.window.wh()
 	}
 }

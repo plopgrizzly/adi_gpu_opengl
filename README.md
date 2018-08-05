@@ -1,7 +1,9 @@
+[![Plop Grizzly](https://plopgrizzly.com/images/logo-bar.png)](https://plopgrizzly.com)
+
 # [Aldaron's Device Interface / GPU / OpenGL](https://crates.io/crates/adi_gpu_opengl)
 OpenGL implementation for adi_gpu
 
-## [Contributing](http://plopgrizzly.com/contributing/en#contributing)
+This project is part of [ADI](https://crates.io/crates/adi).
 
 ## Change Log
 ### 0.7
@@ -15,5 +17,3 @@ OpenGL implementation for adi_gpu
 
 ### 0.4
 * Update to newest adi\_gpu\_base.
-
-## Developed by [Plop Grizzly](http://plopgrizzly.com)
